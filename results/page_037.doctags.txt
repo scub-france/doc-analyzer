@@ -1,0 +1,8 @@
+<doctag>
+<page_header><loc_65><loc_116><loc_1589><loc_256>Livret d'aide au diagnostic de panne électrique</loc_116></page_header>
+<section_header_level_1><loc_100><loc_350><loc_1554><loc_490>Section 37</loc_350></section_header_level_1>
+<text><loc_65><loc_490><loc_1589><loc_630>Paragraph 1 on page 37.</loc_490></text>
+<text><loc_65><loc_570><loc_1589><loc_710>Paragraph 2 on page 37.</loc_570></text>
+<text><loc_65><loc_650><loc_1589><loc_790>Paragraph 3 on page 37.</loc_650></text>
+<page_footer><loc_817><loc_2223><loc_837><loc_2293>37</loc_2223></page_footer>
+</doctag>

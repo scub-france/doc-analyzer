@@ -1,0 +1,7 @@
+<doctag>
+<page_header><loc_65><loc_116><loc_1589><loc_256>Livret d'aide au diagnostic de panne électrique</loc_116></page_header>
+<picture><loc_579><loc_350><loc_1075><loc_700>POLYTROPIC Logo</loc_350></picture>
+<section_header_level_1><loc_248.1><loc_818><loc_1405.8999999999999><loc_1402>LIVRET D'AIDE AU DIAGNOSTIC DE PANNE</loc_818></section_header_level_1>
+<text><loc_248.1><loc_1518><loc_1405.8999999999999><loc_1705>Pompe à chaleur pour piscine 2017/2019</loc_1518></text>
+<page_footer><loc_817><loc_2223><loc_837><loc_2293>1</loc_2223></page_footer>
+</doctag>

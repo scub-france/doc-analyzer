@@ -487,7 +487,10 @@ def create_debug_image(image, zones, page_num, output_path):
 
     return debug_img
 
-def process_page(pdf_path, page_num, doctags_path, output_base, dpi=200, show=False, scale=1.0, scale_x=None, scale_y=None, adjust=False):
+# Improved auto-adjustment function for visualizer.py
+# Replace this function in your visualizer.py script
+
+def process_page(pdf_path, page_num, doctags_path, output_base, dpi=200, show=False, scale=1.0, scale_x=None, scale_y=None, adjust=True):
     """Process a single page of the PDF with visualization."""
     # Generate output paths for this page
     output_name = f"{Path(output_base).stem}_page_{page_num}{Path(output_base).suffix}"
@@ -519,41 +522,33 @@ def process_page(pdf_path, page_num, doctags_path, output_base, dpi=200, show=Fa
             print(f"Zone boundaries: X({min_x}-{max_x}), Y({min_y}-{max_y})")
             print(f"Suggested scale factors: X={img_width/max_x:.3f}, Y={img_height/max_y:.3f}")
 
-        # Apply scaling to coordinates if required
-        if scale != 1.0 or scale_x is not None or scale_y is not None:
-            x_scale = scale_x if scale_x is not None else scale
-            y_scale = scale_y if scale_y is not None else scale
-
-            for zone in zones:
-                zone['x1'] = int(zone['x1'] * x_scale)
-                zone['y1'] = int(zone['y1'] * y_scale)
-                zone['x2'] = int(zone['x2'] * x_scale)
-                zone['y2'] = int(zone['y2'] * y_scale)
-
-            print(f"Applied scaling: X={x_scale}, Y={y_scale}")
-
-        # Auto-adjust scaling if requested
-        if adjust:
-            # Find the maximum coordinates in the zones
-            max_x = max([zone['x2'] for zone in zones]) if zones else 0
-            max_y = max([zone['y2'] for zone in zones]) if zones else 0
-
-            # If max coordinates exceed image dimensions or are too small
-            if max_x > 0 and max_y > 0:
+            # Always apply automatic scaling (making adjust=True by default)
+            # This solves the common scaling issue between DocTags coordinates and image dimensions
+            if adjust:
                 width, height = image.size
 
-                # Calculate appropriate scaling factors
-                if max_x > width * 1.1 or max_x < width * 0.5:
-                    x_scale = width / max_x
+                # Calculate appropriate scaling factors with better heuristics
+                # Use smaller scaling to avoid cutting off content
+                if max_x > 0:
+                    x_scale = min(width / max_x, 1.0) if max_x > width else max(width / max_x, 0.5)
                     print(f"Auto-adjusted X scale to {x_scale:.3f} (image width: {width}, max zone x: {max_x})")
                 else:
                     x_scale = 1.0
 
-                if max_y > height * 1.1 or max_y < height * 0.5:
-                    y_scale = height / max_y
+                if max_y > 0:
+                    y_scale = min(height / max_y, 1.0) if max_y > height else max(height / max_y, 0.5)
                     print(f"Auto-adjusted Y scale to {y_scale:.3f} (image height: {height}, max zone y: {max_y})")
                 else:
                     y_scale = 1.0
+
+                # Apply more aggressive adjustment if image and zones are very different in scale
+                if max_x > width * 5 or max_x < width / 5:
+                    x_scale = width / max_x
+                    print(f"Major X scale adjustment to {x_scale:.3f}")
+
+                if max_y > height * 5 or max_y < height / 5:
+                    y_scale = height / max_y
+                    print(f"Major Y scale adjustment to {y_scale:.3f}")
 
                 # Apply the scaling to all zones
                 if x_scale != 1.0 or y_scale != 1.0:
