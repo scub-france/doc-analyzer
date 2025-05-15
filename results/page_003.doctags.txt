@@ -1,9 +1,0 @@
-<doctag>
-<page_header><loc_65><loc_116><loc_1589><loc_256>Livret d'aide au diagnostic de panne électrique</loc_116></page_header>
-<text><loc_65><loc_187><loc_1589><loc_327>Généralités avant toute intervention sur une pompe à chaleur.</loc_187></text>
-<section_header_level_1><loc_100><loc_347><loc_1554><loc_463>1. Identification des machines</loc_347></section_header_level_1>
-<table><loc_330.8><loc_493><loc_1323.2><loc_843>Tableau des modèles de pompes à chaleur</loc_493></table>
-<section_header_level_1><loc_100><loc_873><loc_1554><loc_989>2. Sélection de la pompe à chaleur</loc_873></section_header_level_1>
-<text><loc_65><loc_1009><loc_1589><loc_1125>La puissance de la pompe à chaleur doit correspondre au volume et dimensions de la piscine :</loc_1009></text>
-<page_footer><loc_817><loc_2223><loc_837><loc_2293>3</loc_2223></page_footer>
-</doctag>

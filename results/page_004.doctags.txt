@@ -1,9 +1,0 @@
-<doctag>
-<page_header><loc_65><loc_116><loc_1589><loc_256>Livret d'aide au diagnostic de panne électrique</loc_116></page_header>
-<text><loc_65><loc_187><loc_1589><loc_327>En général, on utilise la formule générique « T° d'eau / 2 = temps de filtration ».</loc_187></text>
-<text><loc_65><loc_347><loc_1589><loc_440>Exemple : Température d'eau à 28°c : 28 / 2 = 14 h de filtration par jour.</loc_347></text>
-<text><loc_65><loc_470><loc_1589><loc_750>En fin de saison la pompe à chaleur maintient la température de la piscine, et cette température d'eau à tendance à décroître avec la température extérieure jusqu'à ce que la pompe à chaleur arrive en limite de fonctionnement.</loc_470></text>
-<section_header_level_1><loc_100><loc_790><loc_1554><loc_906>3. Raccordement hydraulique</loc_790></section_header_level_1>
-<text><loc_65><loc_926><loc_1589><loc_1042>La tuyauterie de raccordement de la PAC doit avoir un diamètre de 50 mm au minimum (63mm pour la Master XL)</loc_926></text>
-<page_footer><loc_817><loc_2223><loc_837><loc_2293>4</loc_2223></page_footer>
-</doctag>
