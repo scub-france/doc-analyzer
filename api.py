@@ -209,7 +209,7 @@ def process_document(job_id, pdf_path, pages, x_factor=0.7, y_factor=0.7, dpi=20
             # Process the page
             process_page(job_id, pdf_path, page_num, x_factor, y_factor, dpi)
 
-        # Create index.html to navigate between pages
+        # Create old.html to navigate between pages
         create_index_html(job_id)
 
         # Complete the job
@@ -235,13 +235,13 @@ def process_document(job_id, pdf_path, pages, x_factor=0.7, y_factor=0.7, dpi=20
 
 
 def create_index_html(job_id):
-    """Create an index.html file to navigate between pages."""
+    """Create an old.html file to navigate between pages."""
     try:
         result_dir = os.path.join(RESULTS_FOLDER, job_id)
         job_info = jobs[job_id]
         pdf_name = os.path.basename(job_info['pdf_path'])
 
-        index_path = os.path.join(result_dir, "index.html")
+        index_path = os.path.join(result_dir, "old.html")
 
         # Basic HTML structure
         html = f"""<!DOCTYPE html>
@@ -327,10 +327,10 @@ def create_index_html(job_id):
         with open(index_path, 'w', encoding='utf-8') as f:
             f.write(html)
 
-        logger.info(f"Created index.html for job {job_id}")
+        logger.info(f"Created old.html for job {job_id}")
 
     except Exception as e:
-        logger.error(f"Error creating index.html: {str(e)}")
+        logger.error(f"Error creating old.html: {str(e)}")
 
 
 def save_job_results(job_id):
@@ -548,11 +548,11 @@ def get_result_file(job_id, filename):
 
 @app.route('/api/results/<job_id>/view', methods=['GET'])
 def view_results(job_id):
-    """Redirect to the index.html file for viewing results."""
+    """Redirect to the old.html file for viewing results."""
     if job_id not in jobs:
         return jsonify({'error': 'Job not found'}), 404
 
-    index_path = os.path.join(RESULTS_FOLDER, job_id, "index.html")
+    index_path = os.path.join(RESULTS_FOLDER, job_id, "old.html")
     if not os.path.exists(index_path):
         return jsonify({'error': 'Results not found'}), 404
 

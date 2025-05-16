@@ -15,4 +15,4 @@ python analyzer.py --image document.pdf --page 13 && python visualizer.py --doct
 
 
 ## Run full with scaling fix
-python analyzer.py --image document.pdf --page 7 && python fix_scaling.py --doctags output.doctags.txt --output fixed_output.doctags.txt --x-factor 0.7 --y-factor 0.7 && python visualizer.py --doctags fixed_output.doctags.txt --pdf document.pdf --page 7 --adjust --show
+python analyzer.py --image document.pdf --page 8 && python fix_scaling.py --doctags output.doctags.txt --output fixed_output.doctags.txt --x-factor 0.7 --y-factor 0.7 && python visualizer.py --doctags fixed_output.doctags.txt --pdf document.pdf --page 8 --adjust --show
