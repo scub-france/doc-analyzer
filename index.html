@@ -5,133 +5,363 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DocTags Tools</title>
     <style>
+        :root {
+            --primary-color: #4CAF50;
+            --primary-dark: #45a049;
+            --secondary-color: #2196F3;
+            --error-color: #d32f2f;
+            --success-color: #43a047;
+            --warning-color: #ff9800;
+            --text-color: #333;
+            --light-bg: #f5f5f5;
+            --border-color: #ddd;
+        }
+
         body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
+            color: var(--text-color);
+            background-color: #f9f9f9;
         }
-        h1 {
+
+        header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+
+        header img {
+            width: 50px;
+            margin-right: 15px;
+        }
+
+        h1, h2, h3 {
             color: #333;
+            margin-top: 0;
         }
+
         .form-group {
             margin-bottom: 15px;
         }
+
         label {
             display: block;
             margin-bottom: 5px;
             font-weight: bold;
         }
-        select, input {
-            padding: 8px;
+
+        select, input[type="number"] {
+            padding: 10px 12px;
             width: 100%;
             max-width: 300px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 14px;
         }
+
+        input[type="checkbox"] {
+            margin-right: 8px;
+        }
+
         button {
-            padding: 10px 15px;
-            background-color: #4CAF50;
+            padding: 10px 16px;
+            background-color: var(--primary-color);
             color: white;
             border: none;
             border-radius: 4px;
             cursor: pointer;
             margin-right: 10px;
             margin-bottom: 10px;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            transition: background-color 0.2s;
         }
+
         button:hover {
-            background-color: #45a049;
+            background-color: var(--primary-dark);
         }
+
         button:disabled {
             background-color: #cccccc;
             cursor: not-allowed;
         }
-        .output {
-            margin-top: 20px;
-            padding: 15px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            background-color: #f9f9f9;
-            white-space: pre-wrap;
-            max-height: 300px;
-            overflow-y: auto;
-        }
-        .hidden {
-            display: none;
-        }
-        img {
-            max-width: 100%;
-            margin-top: 10px;
-            border: 1px solid #ddd;
-        }
-        .container {
+
+        .workflow-container {
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 30px;
+            margin-top: 30px;
         }
+
         .step {
-            background-color: #f5f5f5;
-            padding: 15px;
-            border-radius: 5px;
-            border-left: 5px solid #4CAF50;
+            background-color: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            transition: all 0.3s ease;
+            border-left: 5px solid var(--primary-color);
         }
+
         .step h3 {
             margin-top: 0;
+            display: flex;
+            align-items: center;
         }
-        .status {
-            font-weight: bold;
-            margin-top: 5px;
-        }
-        .error {
-            color: #d32f2f;
-        }
-        .success {
-            color: #43a047;
-        }
-        .working {
-            color: #1976d2;
-        }
-        .loader {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #3498db;
+
+        .step h3 span {
+            background-color: var(--primary-color);
+            color: white;
+            width: 28px;
+            height: 28px;
             border-radius: 50%;
-            width: 20px;
-            height: 20px;
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            margin-right: 10px;
+            font-size: 16px;
+        }
+
+        .status {
+            font-weight: 500;
+            margin-top: 15px;
+            padding: 8px 12px;
+            border-radius: 4px;
+            display: inline-block;
+        }
+
+        .error {
+            background-color: rgba(211, 47, 47, 0.1);
+            color: var(--error-color);
+            border-left: 3px solid var(--error-color);
+        }
+
+        .success {
+            background-color: rgba(67, 160, 71, 0.1);
+            color: var(--success-color);
+            border-left: 3px solid var(--success-color);
+        }
+
+        .working {
+            background-color: rgba(25, 118, 210, 0.1);
+            color: var(--secondary-color);
+            border-left: 3px solid var(--secondary-color);
+        }
+
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid var(--secondary-color);
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
             animation: spin 2s linear infinite;
             display: inline-block;
             vertical-align: middle;
-            margin-right: 10px;
+            margin-right: 8px;
         }
+
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        #environment-check {
+
+        .output-section {
             margin-top: 20px;
-            padding: 10px;
-            background-color: #fff3cd;
-            border: 1px solid #ffeeba;
+            padding: 15px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background-color: var(--light-bg);
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 14px;
+        }
+
+        .preview-section {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .preview-container {
+            background-color: white;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .preview-container h4 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: var(--secondary-color);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 8px;
+        }
+
+        .pdf-preview {
+            max-height: 400px;
+            overflow-y: auto;
+            display: flex;
+            justify-content: center;
+            background-color: #f5f5f5;
+            padding: 15px;
             border-radius: 4px;
         }
+
+        .pdf-preview img {
+            max-width: 100%;
+            border: 1px solid #ddd;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .doctags-preview {
+            max-height: 300px;
+            overflow-y: auto;
+            background-color: #272822;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .visualization-preview {
+            display: flex;
+            justify-content: center;
+            max-height: 400px;
+            overflow-y: auto;
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-radius: 4px;
+        }
+
+        .visualization-preview img {
+            max-width: 100%;
+            border: 1px solid #ddd;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .extracted-images-preview {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            max-height: 400px;
+            overflow-y: auto;
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+        }
+
+        .extracted-image {
+            background-color: white;
+            padding: 10px;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+
+        .extracted-image:hover {
+            transform: scale(1.02);
+        }
+
+        .extracted-image img {
+            width: 100%;
+            border-radius: 4px;
+            display: block;
+        }
+
+        .extracted-image .caption {
+            margin-top: 8px;
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        #environment-check {
+            margin-top: 40px;
+            padding: 20px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
         .env-success {
-            color: green;
+            color: var(--success-color);
         }
+
         .env-error {
-            color: red;
+            color: var(--error-color);
         }
+
         .debug-section {
-            margin-top: 30px;
-            border-top: 1px solid #ccc;
+            margin-top: 50px;
+            border-top: 1px solid var(--border-color);
             padding-top: 20px;
+        }
+
+        .debug-section button {
+            background-color: #607d8b;
+        }
+
+        .debug-section button:hover {
+            background-color: #546e7a;
+        }
+
+        /* Tabs for extracted images */
+        .tabs {
+            display: flex;
+            margin-bottom: 15px;
+        }
+
+        .tab {
+            padding: 8px 16px;
+            background-color: #f0f0f0;
+            border: 1px solid #ddd;
+            cursor: pointer;
+        }
+
+        .tab.active {
+            background-color: white;
+            border-bottom-color: white;
+            font-weight: bold;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .extracted-images-preview {
+                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            }
         }
     </style>
 </head>
 <body>
-<h1>DocTags Analyzer and Visualizer</h1>
+<header>
+    <h1>DocTags Analyzer and Visualizer</h1>
+</header>
 
 <div id="environment-check" class="hidden">
     <h3>Environment Check</h3>
     <div id="env-details"></div>
 </div>
 
+<!-- Main form controls -->
 <div class="form-group">
     <label for="pdf_file">PDF File:</label>
     <select id="pdf_file" name="pdf_file"></select>
@@ -150,37 +380,75 @@
     </label>
 </div>
 
-<div class="container">
-    <div class="step">
-        <h3>Step 1: Analyze PDF</h3>
+<!-- Workflow steps -->
+<div class="workflow-container">
+    <!-- Step 1: Analyze PDF -->
+    <div class="step" id="step-analyze">
+        <h3><span>1</span> Analyze PDF</h3>
         <p>Extract DocTags structure from the PDF page</p>
         <button id="analyzer-btn" onclick="runScript('analyzer')">Run Analyzer</button>
         <div id="analyzer-status" class="status"></div>
+
+        <!-- PDF and DocTags Preview Section -->
+        <div id="analyze-preview-section" class="preview-section hidden">
+            <div class="preview-container">
+                <h4>PDF Preview</h4>
+                <div class="pdf-preview" id="pdf-preview">
+                    <!-- PDF preview will be inserted here -->
+                </div>
+            </div>
+
+            <div class="preview-container">
+                <h4>Generated DocTags</h4>
+                <div class="doctags-preview" id="doctags-preview">
+                    <!-- DocTags content will be inserted here -->
+                </div>
+            </div>
+        </div>
     </div>
 
-    <div class="step">
-        <h3>Step 2: Generate Visualization</h3>
+    <!-- Step 2: Generate Visualization -->
+    <div class="step" id="step-visualize">
+        <h3><span>2</span> Generate Visualization</h3>
         <p>Create visual representation of the extracted DocTags</p>
-        <button id="visualizer-btn" onclick="runScript('visualizer')">Run Visualizer</button>
+        <button id="visualizer-btn" onclick="runScript('visualizer')" disabled>Run Visualizer</button>
         <div id="visualizer-status" class="status"></div>
+
+        <!-- Visualization Preview Section -->
+        <div id="visualize-preview-section" class="preview-section hidden">
+            <div class="preview-container">
+                <h4>Zones Visualization</h4>
+                <div class="visualization-preview" id="visualization-preview">
+                    <!-- Visualization image will be inserted here -->
+                </div>
+            </div>
+        </div>
     </div>
 
-    <div class="step">
-        <h3>Step 3: Extract Pictures</h3>
+    <!-- Step 3: Extract Pictures -->
+    <div class="step" id="step-extract">
+        <h3><span>3</span> Extract Pictures</h3>
         <p>Extract images from the document based on DocTags</p>
-        <button id="extractor-btn" onclick="runScript('extractor')">Run Picture Extractor</button>
+        <button id="extractor-btn" onclick="runScript('extractor')" disabled>Run Picture Extractor</button>
         <div id="extractor-status" class="status"></div>
+
+        <!-- Extracted Images Preview Section -->
+        <div id="extract-preview-section" class="preview-section hidden">
+            <div class="preview-container">
+                <h4>Extracted Images</h4>
+                <div class="extracted-images-preview" id="extracted-images-preview">
+                    <!-- Extracted images will be inserted here -->
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
-<div id="output" class="output hidden"></div>
+<div id="output" class="output-section hidden"></div>
 
-<div id="image-container" class="hidden">
-    <h2>Visualization Result</h2>
-    <img id="result-image" src="" alt="Visualization">
-</div>
-
+<!-- Debug Section -->
 <div class="debug-section">
+    <h3>Advanced Options</h3>
     <button onclick="checkEnvironment()">Run Environment Check</button>
     <button onclick="manuallyRunScript()">Run Manual Command</button>
 </div>
@@ -189,6 +457,7 @@
     // Keep track of active tasks
     const activeTasks = {};
     let pollingInterval = null;
+    let pdfPages = {};
 
     // Load PDF files on page load
     window.addEventListener('DOMContentLoaded', function() {
@@ -216,15 +485,73 @@
                     select.appendChild(option);
                 });
                 pdfStatus.innerHTML = '<span class="success">Loaded ' + data.length + ' PDF files</span>';
+
+                // Load the preview for the first PDF
+                if (data.length > 0) {
+                    loadPdfPreview(data[0], 1);
+                }
             })
             .catch(error => {
                 console.error('Error loading PDFs:', error);
                 pdfStatus.innerHTML = '<span class="error">Error: ' + error.message + '</span>';
             });
 
+        // Add event listeners for PDF and page selection changes
+        document.getElementById('pdf_file').addEventListener('change', function() {
+            const pageNum = document.getElementById('page_num').value;
+            loadPdfPreview(this.value, pageNum);
+        });
+
+        document.getElementById('page_num').addEventListener('change', function() {
+            const pdfFile = document.getElementById('pdf_file').value;
+            if (pdfFile) {
+                loadPdfPreview(pdfFile, this.value);
+            }
+        });
+
         // Run an environment check on startup
         checkEnvironment();
     });
+
+    // Function to load PDF preview
+    function loadPdfPreview(pdfFile, pageNum) {
+        const previewContainer = document.getElementById('pdf-preview');
+        previewContainer.innerHTML = '<div class="loader"></div> Loading PDF preview...';
+
+        // Generate a temp preview for the PDF page
+        const formData = new FormData();
+        formData.append('pdf_file', pdfFile);
+        formData.append('page_num', pageNum);
+
+        fetch('/generate-preview', {
+            method: 'POST',
+            body: formData
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.preview_image) {
+                    const img = document.createElement('img');
+                    img.src = data.preview_image + '?t=' + new Date().getTime(); // Add timestamp to prevent caching
+                    img.alt = `Page ${pageNum} of ${pdfFile}`;
+
+                    // Clear previous content and add the new image
+                    previewContainer.innerHTML = '';
+                    previewContainer.appendChild(img);
+
+                    // Store page count if available
+                    if (data.page_count) {
+                        pdfPages[pdfFile] = data.page_count;
+                        document.getElementById('page_num').max = data.page_count;
+                    }
+                } else {
+                    previewContainer.innerHTML = '<div class="error">Failed to load preview: ' + (data.error || 'Unknown error') + '</div>';
+                }
+            })
+            .catch(error => {
+                console.error('Error loading PDF preview:', error);
+                previewContainer.innerHTML = '<div class="error">Error loading preview: ' + error.message + '</div>';
+            });
+    }
 
     // Check the environment
     function checkEnvironment() {
@@ -331,6 +658,77 @@
         }
     }
 
+    // Function to load DocTags preview
+    function loadDocTagsPreview(doctagsPath) {
+        fetch('/get-doctags-content?path=' + encodeURIComponent(doctagsPath))
+            .then(response => response.text())
+            .then(content => {
+                const doctagsPreview = document.getElementById('doctags-preview');
+                doctagsPreview.textContent = content;
+                document.getElementById('analyze-preview-section').classList.remove('hidden');
+            })
+            .catch(error => {
+                console.error('Error loading DocTags content:', error);
+            });
+    }
+
+    // Function to load visualization preview
+    function loadVisualizationPreview(imagePath) {
+        const container = document.getElementById('visualization-preview');
+        const img = document.createElement('img');
+        img.src = imagePath + '?t=' + new Date().getTime();
+        img.alt = 'DocTags Visualization';
+
+        container.innerHTML = '';
+        container.appendChild(img);
+        document.getElementById('visualize-preview-section').classList.remove('hidden');
+    }
+
+    // Function to load extracted images preview
+    function loadExtractedImagesPreview() {
+        const pdfFile = document.getElementById('pdf_file').value;
+        const pageNum = document.getElementById('page_num').value;
+
+        // Request the extracted images list
+        fetch(`/get-extracted-images?pdf=${encodeURIComponent(pdfFile)}&page=${pageNum}`)
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('extracted-images-preview');
+                container.innerHTML = '';
+
+                if (data.success && data.images && data.images.length > 0) {
+                    data.images.forEach(image => {
+                        const imageDiv = document.createElement('div');
+                        imageDiv.className = 'extracted-image';
+
+                        const img = document.createElement('img');
+                        img.src = image.path + '?t=' + new Date().getTime();
+                        img.alt = image.caption || `Extracted image ${image.id}`;
+
+                        imageDiv.appendChild(img);
+
+                        if (image.caption) {
+                            const caption = document.createElement('div');
+                            caption.className = 'caption';
+                            caption.textContent = image.caption;
+                            imageDiv.appendChild(caption);
+                        }
+
+                        container.appendChild(imageDiv);
+                    });
+                } else {
+                    container.innerHTML = '<div class="error">No extracted images found</div>';
+                }
+
+                document.getElementById('extract-preview-section').classList.remove('hidden');
+            })
+            .catch(error => {
+                console.error('Error loading extracted images:', error);
+                const container = document.getElementById('extracted-images-preview');
+                container.innerHTML = '<div class="error">Error loading images: ' + error.message + '</div>';
+            });
+    }
+
     // Poll for task updates
     function pollTasks() {
         for (const taskId in activeTasks) {
@@ -360,17 +758,24 @@
                             outputDiv.textContent = data.output;
                             outputDiv.classList.remove('hidden');
 
-                            // Show image if available for visualizer
-                            if (taskInfo.type === 'visualizer' && data.image_file) {
-                                document.getElementById('result-image').src = '/' + data.image_file + '?t=' + new Date().getTime();
-                                document.getElementById('image-container').classList.remove('hidden');
-                            }
-
-                            // Enable next step button if applicable
+                            // Update preview based on task type
                             if (taskInfo.type === 'analyzer') {
+                                // Load DocTags preview
+                                loadDocTagsPreview(data.doctags_file);
+
+                                // Enable next step button
                                 document.getElementById('visualizer-btn').disabled = false;
-                            } else if (taskInfo.type === 'visualizer') {
+                            }
+                            else if (taskInfo.type === 'visualizer' && data.image_file) {
+                                // Load visualization preview
+                                loadVisualizationPreview('/' + data.image_file);
+
+                                // Enable next step button
                                 document.getElementById('extractor-btn').disabled = false;
+                            }
+                            else if (taskInfo.type === 'extractor') {
+                                // Load extracted images preview
+                                loadExtractedImagesPreview();
                             }
 
                             // Remove from active tasks
@@ -427,11 +832,6 @@
 
         // Clear previous output
         document.getElementById('output').classList.add('hidden');
-
-        // Hide previous image if not running visualizer
-        if (script !== 'visualizer') {
-            document.getElementById('image-container').classList.add('hidden');
-        }
 
         // Determine endpoint
         let endpoint;

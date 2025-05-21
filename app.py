@@ -4,7 +4,12 @@ import os
 import time
 import threading
 import logging
+import json
+import re
 from pathlib import Path
+import glob
+from PIL import Image
+import pdf2image
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
@@ -356,6 +361,143 @@ def run_manual_command():
             })
     except Exception as e:
         logger.error(f"Error running manual command: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# NEW ROUTES TO SUPPORT ENHANCED UI
+
+@app.route('/generate-preview', methods=['POST'])
+def generate_preview():
+    """Generate a preview image of a PDF page"""
+    try:
+        # Get parameters
+        pdf_file = request.form.get('pdf_file')
+        page_num = int(request.form.get('page_num', 1))
+
+        if not pdf_file or not os.path.exists(pdf_file):
+            return jsonify({'success': False, 'error': 'PDF file not found'}), 400
+
+        # Ensure results directory exists
+        results_dir = ensure_results_folder()
+        preview_path = results_dir / f"preview_{os.path.basename(pdf_file)}_{page_num}.png"
+
+        # Convert PDF page to image
+        try:
+            # Get total page count
+            from pdf2image.pdf2image import pdfinfo_from_path
+            pdf_info = pdfinfo_from_path(pdf_file)
+            page_count = pdf_info["Pages"]
+
+            # Ensure the page number is valid
+            if page_num > page_count:
+                return jsonify({'success': False, 'error': f'Page number {page_num} exceeds total pages {page_count}'}), 400
+
+            # Convert the page
+            images = pdf2image.convert_from_path(
+                pdf_file,
+                dpi=150,  # Lower DPI for preview
+                first_page=page_num,
+                last_page=page_num
+            )
+
+            if images:
+                # Resize for preview if too large
+                MAX_HEIGHT = 600
+                img = images[0]
+                ratio = MAX_HEIGHT / img.height if img.height > MAX_HEIGHT else 1
+                if ratio < 1:
+                    new_width = int(img.width * ratio)
+                    img = img.resize((new_width, MAX_HEIGHT), Image.Resampling.LANCZOS)
+
+                # Save the preview
+                img.save(preview_path)
+
+                return jsonify({
+                    'success': True,
+                    'preview_image': f'/results/{preview_path.name}',
+                    'page_count': page_count
+                })
+            else:
+                return jsonify({'success': False, 'error': 'Failed to convert PDF page'}), 500
+
+        except Exception as e:
+            logger.error(f"Error converting PDF: {str(e)}")
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    except Exception as e:
+        logger.error(f"Error generating preview: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/get-doctags-content')
+def get_doctags_content():
+    """Get the content of a DocTags file"""
+    try:
+        path = request.args.get('path')
+        if not path or not os.path.exists(path):
+            # Try prepending 'results/' if the path doesn't exist
+            if not path.startswith('results/'):
+                path = f"results/{path}"
+
+            if not os.path.exists(path):
+                return "DocTags file not found", 404
+
+        with open(path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        return content
+    except Exception as e:
+        logger.error(f"Error reading DocTags file: {str(e)}")
+        return f"Error: {str(e)}", 500
+
+@app.route('/get-extracted-images')
+def get_extracted_images():
+    """Get a list of extracted images for a specific PDF page"""
+    try:
+        pdf_file = request.args.get('pdf')
+        page_num = request.args.get('page', 1)
+
+        if not pdf_file:
+            return jsonify({'success': False, 'error': 'PDF file not specified'}), 400
+
+        # Get the base name of the PDF without extension
+        pdf_basename = os.path.splitext(os.path.basename(pdf_file))[0]
+
+        # Look for extracted images in the results/pictures directory
+        pictures_dir = Path("results") / "pictures"
+
+        if not pictures_dir.exists():
+            return jsonify({'success': True, 'images': []})
+
+        # Pattern to match: picture_*.*
+        image_pattern = pictures_dir / "picture_*.png"
+        image_files = glob.glob(str(image_pattern))
+
+        images = []
+        for image_file in image_files:
+            img_path = Path(image_file)
+            img_id = "unknown"
+            img_caption = ""
+
+            # Try to extract ID from filename (picture_1_caption.png)
+            match = re.search(r'picture_(\d+)', img_path.name)
+            if match:
+                img_id = match.group(1)
+
+            # Look for a matching caption file
+            caption_file = img_path.with_suffix('.txt')
+            if caption_file.exists():
+                with open(caption_file, 'r', encoding='utf-8') as f:
+                    img_caption = f.read().strip()
+
+            images.append({
+                'id': img_id,
+                'path': f'/results/pictures/{img_path.name}',
+                'caption': img_caption
+            })
+
+        return jsonify({'success': True, 'images': images})
+
+    except Exception as e:
+        logger.error(f"Error getting extracted images: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
