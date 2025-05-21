@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocTags Tools</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        select, input {
+            padding: 8px;
+            width: 100%;
+            max-width: 300px;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .output {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .hidden {
+            display: none;
+        }
+        img {
+            max-width: 100%;
+            margin-top: 10px;
+            border: 1px solid #ddd;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .step {
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 5px solid #4CAF50;
+        }
+        .step h3 {
+            margin-top: 0;
+        }
+        .status {
+            font-weight: bold;
+            margin-top: 5px;
+        }
+        .error {
+            color: #d32f2f;
+        }
+        .success {
+            color: #43a047;
+        }
+        .working {
+            color: #1976d2;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 2s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        #environment-check {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #fff3cd;
+            border: 1px solid #ffeeba;
+            border-radius: 4px;
+        }
+        .env-success {
+            color: green;
+        }
+        .env-error {
+            color: red;
+        }
+        .debug-section {
+            margin-top: 30px;
+            border-top: 1px solid #ccc;
+            padding-top: 20px;
+        }
+    </style>
+</head>
+<body>
+<h1>DocTags Analyzer and Visualizer</h1>
+
+<div id="environment-check" class="hidden">
+    <h3>Environment Check</h3>
+    <div id="env-details"></div>
+</div>
+
+<div class="form-group">
+    <label for="pdf_file">PDF File:</label>
+    <select id="pdf_file" name="pdf_file"></select>
+    <div id="pdf-load-status"></div>
+</div>
+
+<div class="form-group">
+    <label for="page_num">Page Number:</label>
+    <input type="number" id="page_num" name="page_num" value="1" min="1">
+</div>
+
+<div class="form-group">
+    <label for="adjust">
+        <input type="checkbox" id="adjust" name="adjust" checked>
+        Auto-adjust coordinates
+    </label>
+</div>
+
+<div class="container">
+    <div class="step">
+        <h3>Step 1: Analyze PDF</h3>
+        <p>Extract DocTags structure from the PDF page</p>
+        <button id="analyzer-btn" onclick="runScript('analyzer')">Run Analyzer</button>
+        <div id="analyzer-status" class="status"></div>
+    </div>
+
+    <div class="step">
+        <h3>Step 2: Generate Visualization</h3>
+        <p>Create visual representation of the extracted DocTags</p>
+        <button id="visualizer-btn" onclick="runScript('visualizer')">Run Visualizer</button>
+        <div id="visualizer-status" class="status"></div>
+    </div>
+
+    <div class="step">
+        <h3>Step 3: Extract Pictures</h3>
+        <p>Extract images from the document based on DocTags</p>
+        <button id="extractor-btn" onclick="runScript('extractor')">Run Picture Extractor</button>
+        <div id="extractor-status" class="status"></div>
+    </div>
+</div>
+
+<div id="output" class="output hidden"></div>
+
+<div id="image-container" class="hidden">
+    <h2>Visualization Result</h2>
+    <img id="result-image" src="" alt="Visualization">
+</div>
+
+<div class="debug-section">
+    <button onclick="checkEnvironment()">Run Environment Check</button>
+    <button onclick="manuallyRunScript()">Run Manual Command</button>
+</div>
+
+<script>
+    // Keep track of active tasks
+    const activeTasks = {};
+    let pollingInterval = null;
+
+    // Load PDF files on page load
+    window.addEventListener('DOMContentLoaded', function() {
+        const pdfStatus = document.getElementById('pdf-load-status');
+        pdfStatus.innerHTML = '<div class="loader"></div> Loading PDF files...';
+
+        fetch('/pdf-files')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Failed to load PDF files');
+                }
+                return response.json();
+            })
+            .then(data => {
+                const select = document.getElementById('pdf_file');
+                if (data.length === 0) {
+                    pdfStatus.innerHTML = '<span class="error">No PDF files found in the current directory</span>';
+                    return;
+                }
+
+                data.forEach(file => {
+                    const option = document.createElement('option');
+                    option.value = file;
+                    option.textContent = file;
+                    select.appendChild(option);
+                });
+                pdfStatus.innerHTML = '<span class="success">Loaded ' + data.length + ' PDF files</span>';
+            })
+            .catch(error => {
+                console.error('Error loading PDFs:', error);
+                pdfStatus.innerHTML = '<span class="error">Error: ' + error.message + '</span>';
+            });
+
+        // Run an environment check on startup
+        checkEnvironment();
+    });
+
+    // Check the environment
+    function checkEnvironment() {
+        const envDiv = document.getElementById('environment-check');
+        const envDetails = document.getElementById('env-details');
+
+        envDiv.classList.remove('hidden');
+        envDetails.innerHTML = '<div class="loader"></div> Checking environment...';
+
+        fetch('/check-environment')
+            .then(response => response.json())
+            .then(data => {
+                let html = '<ul>';
+
+                // Current working directory
+                html += '<li>Working directory: <code>' + data.cwd + '</code></li>';
+
+                // Python version
+                html += '<li>Python version: <code>' + data.python_version + '</code></li>';
+
+                // Required scripts check
+                if (data.missing_scripts.length === 0) {
+                    html += '<li class="env-success">✓ All required scripts found</li>';
+                } else {
+                    html += '<li class="env-error">✗ Missing scripts: <code>' + data.missing_scripts.join(', ') + '</code></li>';
+                }
+
+                // PDF files check
+                if (data.pdf_files.length > 0) {
+                    html += '<li class="env-success">✓ Found ' + data.pdf_files.length + ' PDF files: <code>' + data.pdf_files.join(', ') + '</code></li>';
+                } else {
+                    html += '<li class="env-error">✗ No PDF files found in the working directory</li>';
+                }
+
+                // Results directory check
+                if (data.results_dir_exists) {
+                    html += '<li class="env-success">✓ Results directory exists</li>';
+                    if (data.results_dir_writable) {
+                        html += '<li class="env-success">✓ Results directory is writable</li>';
+                    } else {
+                        html += '<li class="env-error">✗ Results directory is not writable</li>';
+                    }
+                } else {
+                    html += '<li class="env-error">✗ Results directory does not exist</li>';
+                }
+
+                html += '</ul>';
+
+                // List of all files for debugging
+                html += '<details><summary>All files in directory (' + data.files.length + ' files)</summary><pre>' +
+                    data.files.join('\n') + '</pre></details>';
+
+                envDetails.innerHTML = html;
+            })
+            .catch(error => {
+                envDetails.innerHTML = '<div class="env-error">Error checking environment: ' + error.message + '</div>';
+            });
+    }
+
+    // Manual command execution for debugging
+    function manuallyRunScript() {
+        const command = prompt("Enter command to run (e.g., 'python analyzer.py --image document.pdf --page 1')");
+        if (!command) return;
+
+        const outputDiv = document.getElementById('output');
+        outputDiv.textContent = 'Running command: ' + command + '\nPlease wait...';
+        outputDiv.classList.remove('hidden');
+
+        // Create form data
+        const formData = new FormData();
+        formData.append('command', command);
+
+        // Send the command directly to backend
+        fetch('/run-manual-command', {
+            method: 'POST',
+            body: formData
+        })
+            .then(response => response.json())
+            .then(data => {
+                outputDiv.textContent = 'Command: ' + command + '\n\n' +
+                    (data.success ? 'Success!\n\n' : 'Failed!\n\n') +
+                    (data.output || '') +
+                    (data.error ? '\n\nError: ' + data.error : '');
+            })
+            .catch(error => {
+                outputDiv.textContent = 'Error running command: ' + error.message;
+            });
+    }
+
+    // Start polling for task updates
+    function startPolling() {
+        if (pollingInterval) {
+            return; // Already polling
+        }
+
+        pollingInterval = setInterval(pollTasks, 1000);
+    }
+
+    // Stop polling when no active tasks
+    function checkAndStopPolling() {
+        if (Object.keys(activeTasks).length === 0 && pollingInterval) {
+            clearInterval(pollingInterval);
+            pollingInterval = null;
+        }
+    }
+
+    // Poll for task updates
+    function pollTasks() {
+        for (const taskId in activeTasks) {
+            const taskInfo = activeTasks[taskId];
+
+            fetch(`/task-status/${taskId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to check task status');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // Update status display
+                    const statusElement = document.getElementById(`${taskInfo.type}-status`);
+
+                    if (data.done) {
+                        if (data.success) {
+                            // Task completed successfully
+                            statusElement.innerHTML = '<span class="success">✓ Completed</span>';
+
+                            // Enable button
+                            document.getElementById(`${taskInfo.type}-btn`).disabled = false;
+
+                            // Display output
+                            const outputDiv = document.getElementById('output');
+                            outputDiv.textContent = data.output;
+                            outputDiv.classList.remove('hidden');
+
+                            // Show image if available for visualizer
+                            if (taskInfo.type === 'visualizer' && data.image_file) {
+                                document.getElementById('result-image').src = '/' + data.image_file + '?t=' + new Date().getTime();
+                                document.getElementById('image-container').classList.remove('hidden');
+                            }
+
+                            // Enable next step button if applicable
+                            if (taskInfo.type === 'analyzer') {
+                                document.getElementById('visualizer-btn').disabled = false;
+                            } else if (taskInfo.type === 'visualizer') {
+                                document.getElementById('extractor-btn').disabled = false;
+                            }
+
+                            // Remove from active tasks
+                            delete activeTasks[taskId];
+                            checkAndStopPolling();
+                        } else {
+                            // Task failed
+                            statusElement.innerHTML = '<span class="error">✗ Failed: ' + (data.error || 'Unknown error') + '</span>';
+                            document.getElementById(`${taskInfo.type}-btn`).disabled = false;
+
+                            // Display error output
+                            const outputDiv = document.getElementById('output');
+                            outputDiv.textContent = 'Error: ' + (data.error || 'Unknown error');
+                            outputDiv.classList.remove('hidden');
+
+                            // Remove from active tasks
+                            delete activeTasks[taskId];
+                            checkAndStopPolling();
+                        }
+                    } else {
+                        // Still running
+                        statusElement.innerHTML = '<div class="loader"></div><span class="working">Running...</span>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error checking task status:', error);
+                });
+        }
+    }
+
+    function runScript(script) {
+        const pdfFile = document.getElementById('pdf_file').value;
+        const pageNum = document.getElementById('page_num').value;
+        const adjust = document.getElementById('adjust').checked;
+
+        if (!pdfFile) {
+            alert('Please select a PDF file');
+            return;
+        }
+
+        // Disable button
+        const button = document.getElementById(`${script}-btn`);
+        button.disabled = true;
+
+        // Create form data
+        const formData = new FormData();
+        formData.append('pdf_file', pdfFile);
+        formData.append('page_num', pageNum);
+        formData.append('adjust', adjust);
+
+        // Show running status
+        const statusElement = document.getElementById(`${script}-status`);
+        statusElement.innerHTML = '<div class="loader"></div><span class="working">Starting...</span>';
+
+        // Clear previous output
+        document.getElementById('output').classList.add('hidden');
+
+        // Hide previous image if not running visualizer
+        if (script !== 'visualizer') {
+            document.getElementById('image-container').classList.add('hidden');
+        }
+
+        // Determine endpoint
+        let endpoint;
+        switch(script) {
+            case 'analyzer':
+                endpoint = '/run-analyzer';
+                // Disable next step buttons
+                document.getElementById('visualizer-btn').disabled = true;
+                document.getElementById('extractor-btn').disabled = true;
+                break;
+            case 'visualizer':
+                endpoint = '/run-visualizer';
+                // Disable next step button
+                document.getElementById('extractor-btn').disabled = true;
+                break;
+            case 'extractor':
+                endpoint = '/run-extractor';
+                break;
+        }
+
+        // Send request
+        fetch(endpoint, {
+            method: 'POST',
+            body: formData
+        })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Failed to start task');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success && data.task_id) {
+                    // Store task information
+                    activeTasks[data.task_id] = {
+                        type: script,
+                        pageNum: pageNum
+                    };
+
+                    // Start polling for updates
+                    startPolling();
+
+                    // Update status
+                    statusElement.innerHTML = '<div class="loader"></div><span class="working">Running...</span>';
+
+                    // Show initial output
+                    const outputDiv = document.getElementById('output');
+                    outputDiv.textContent = data.message || 'Task started, please wait...';
+                    outputDiv.classList.remove('hidden');
+                } else {
+                    // Failed to start task
+                    statusElement.innerHTML = '<span class="error">✗ Failed to start task</span>';
+                    button.disabled = false;
+
+                    // Show error
+                    const outputDiv = document.getElementById('output');
+                    outputDiv.textContent = 'Error: ' + (data.error || 'Failed to start task');
+                    outputDiv.classList.remove('hidden');
+                }
+            })
+            .catch(error => {
+                console.error('Error starting task:', error);
+                statusElement.innerHTML = '<span class="error">✗ ' + error.message + '</span>';
+                button.disabled = false;
+
+                // Show error
+                const outputDiv = document.getElementById('output');
+                outputDiv.textContent = 'Error: ' + error.message;
+                outputDiv.classList.remove('hidden');
+            });
+    }
+</script>
+</body>
+</html>
