@@ -9,7 +9,7 @@ Usage:
 import argparse
 import os
 import re
-import sys  # Add missing import
+import sys
 import base64
 from io import BytesIO
 import tempfile
@@ -21,8 +21,18 @@ import pdf2image
 # Regular expression to extract location data
 LOC_PATTERN = r'<loc_(\d+)><loc_(\d+)><loc_(\d+)><loc_(\d+)>'
 
+def ensure_results_folder():
+    """Create the results folder if it doesn't exist."""
+    results_dir = Path("results")
+    if not results_dir.exists():
+        results_dir.mkdir()
+        print(f"Created results directory: {results_dir}")
+    return results_dir
+
 def parse_arguments():
     """Parse command line arguments."""
+    results_dir = ensure_results_folder()
+
     parser = argparse.ArgumentParser(description='Visualize zones identified in DocTags format')
     parser.add_argument('--doctags', '-d', type=str, required=True,
                         help='Path to DocTags file')
@@ -30,7 +40,7 @@ def parse_arguments():
                         help='Path to original PDF file')
     parser.add_argument('--page', type=int, default=8,
                         help='Page number in PDF (starts at 1, default: 8)')
-    parser.add_argument('--output', '-o', type=str, default="visualization.html",
+    parser.add_argument('--output', '-o', type=str, default=str(results_dir / "visualization.html"),
                         help='Output HTML file path')
     parser.add_argument('--dpi', type=int, default=200,
                         help='DPI for PDF rendering')
@@ -517,14 +527,14 @@ def create_debug_image(image, zones, page_num, output_path):
 
     return debug_img
 
-# Improved auto-adjustment function for visualizer.py
-# Replace this function in your visualizer.py script
-
 def process_page(pdf_path, page_num, doctags_path, output_base, dpi=200, show=False, scale=1.0, scale_x=None, scale_y=None, adjust=True):
     """Process a single page of the PDF with visualization."""
+    # Ensure results folder exists
+    results_dir = ensure_results_folder()
+
     # Generate output paths for this page
     output_name = f"{Path(output_base).stem}_page_{page_num}{Path(output_base).suffix}"
-    output_path = Path(output_base).parent / output_name
+    output_path = results_dir / output_name
     debug_output = output_path.with_suffix('.debug.png')
 
     # Load the page image
@@ -613,6 +623,9 @@ def process_page(pdf_path, page_num, doctags_path, output_base, dpi=200, show=Fa
 
 def process_all_pages(pdf_path, doctags_path, output_base, dpi=200, show_last=False, scale=1.0, scale_x=None, scale_y=None, adjust=False):
     """Process all pages of the PDF and create visualizations."""
+    # Ensure results folder exists
+    results_dir = ensure_results_folder()
+
     # Get total page count
     total_pages = count_pdf_pages(pdf_path)
     if total_pages == 0:
@@ -629,7 +642,7 @@ def process_all_pages(pdf_path, doctags_path, output_base, dpi=200, show_last=Fa
 
         # Generate output paths for this page
         output_name = f"{Path(output_base).stem}_page_{page_num}{Path(output_base).suffix}"
-        output_path = Path(output_base).parent / output_name
+        output_path = results_dir / output_name
 
         # Process the page
         success = process_page(pdf_path, page_num, doctags_path, output_path, dpi, False, scale, scale_x, scale_y, adjust)
@@ -645,6 +658,9 @@ def process_all_pages(pdf_path, doctags_path, output_base, dpi=200, show_last=Fa
     return True
 
 def main():
+    # Ensure results folder exists
+    ensure_results_folder()
+
     # Parse arguments
     args = parse_arguments()
 
@@ -711,6 +727,16 @@ def generate_doctags_from_pdf(input_pdf, page_num, output_doctags, prompt="Conve
     Returns:
         bool: True if successful, False otherwise
     """
+    # Ensure results folder exists
+    results_dir = ensure_results_folder()
+
+    # Update output path to be in results folder
+    if not isinstance(output_doctags, Path):
+        output_doctags = Path(output_doctags)
+
+    if output_doctags.parent != results_dir:
+        output_doctags = results_dir / output_doctags.name
+
     import subprocess
     import sys
 
@@ -773,12 +799,14 @@ def generate_doctags_from_pdf(input_pdf, page_num, output_doctags, prompt="Conve
 # Command-line interface for the DocTags generator
 def generate_doctags_cli():
     """Command-line interface for generating DocTags."""
+    results_dir = ensure_results_folder()
+
     parser = argparse.ArgumentParser(description='Generate DocTags from a PDF page')
     parser.add_argument('--pdf', type=str, required=True,
                         help='Path to PDF file')
     parser.add_argument('--page', type=int, default=1,
                         help='Page number (starts at 1)')
-    parser.add_argument('--output', type=str, default='output.doctags.txt',
+    parser.add_argument('--output', type=str, default=str(results_dir / 'output.doctags.txt'),
                         help='Output DocTags file')
     parser.add_argument('--prompt', type=str, default='Convert this page to docling.',
                         help='Prompt for the model')

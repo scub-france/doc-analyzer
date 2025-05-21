@@ -26,14 +26,25 @@ from docling_core.types.doc import ImageRefMode
 from docling_core.types.doc.document import DocTagsDocument, DoclingDocument
 
 
+def ensure_results_folder():
+    """Create the results folder if it doesn't exist."""
+    results_dir = Path("results")
+    if not results_dir.exists():
+        results_dir.mkdir()
+        print(f"Created results directory: {results_dir}")
+    return results_dir
+
+
 def parse_arguments():
     """Parse command line arguments."""
+    results_dir = ensure_results_folder()
+
     parser = argparse.ArgumentParser(description='Convert an image or PDF to docling format')
     parser.add_argument('--image', '-i', type=str, required=True,
                         help='Path to local image file, PDF file, or URL')
     parser.add_argument('--prompt', '-p', type=str, default="Convert this page to docling.",
                         help='Prompt for the model')
-    parser.add_argument('--output', '-o', type=str, default="./output.html",
+    parser.add_argument('--output', '-o', type=str, default=str(results_dir / "output.html"),
                         help='Output file path')
     parser.add_argument('--show', '-s', action='store_true',
                         help='Show output in browser')
@@ -410,6 +421,9 @@ def process_page(args, model, processor, config, image_path, pil_image, page_num
     from mlx_vlm.prompt_utils import apply_chat_template
     from mlx_vlm.utils import stream_generate
 
+    # Ensure results folder exists
+    results_dir = ensure_results_folder()
+
     # Prepare input
     prompt = args.prompt
     output_base = Path(args.output)
@@ -419,7 +433,7 @@ def process_page(args, model, processor, config, image_path, pil_image, page_num
     if Path(image_path).suffix.lower() == '.pdf' and page_num > 1:
         # Get base filename without extension
         base_name = output_base.stem
-        output_path = output_base.parent / f"{base_name}_page{page_num}{output_base.suffix}"
+        output_path = results_dir / f"{base_name}_page{page_num}{output_base.suffix}"
 
     print(f"Processing page {page_num}, output will be saved to {output_path}")
 
@@ -460,15 +474,15 @@ def process_page(args, model, processor, config, image_path, pil_image, page_num
             os.unlink(temp_img_path)
             print(f"Removed temporary image file")
 
-    # Save the raw DocTags to a txt file
-    doctags_path = output_path.with_suffix('.doctags.txt')
+    # Save the raw DocTags to a txt file in results folder
+    doctags_path = results_dir / f"{output_path.stem}.doctags.txt"
     with open(doctags_path, 'w', encoding='utf-8') as f:
         f.write(output)
     print(f"Raw DocTags saved to: {doctags_path}")
 
     # Save the tag analysis if in DocTags-only mode
     if args.doctags_only:
-        tags_path = output_path.with_suffix('.tags.md')
+        tags_path = results_dir / f"{output_path.stem}.tags.md"
         with open(tags_path, 'w', encoding='utf-8') as f:
             f.write(tags_analysis)
         print(f"DocTags analysis saved to: {tags_path}")
@@ -477,14 +491,14 @@ def process_page(args, model, processor, config, image_path, pil_image, page_num
     if not args.doctags_only:
         # Create markdown document
         md_content = create_markdown_document(image_path, output, args)
-        md_path = output_path.with_suffix('.md')
+        md_path = results_dir / f"{output_path.stem}.md"
         with open(md_path, 'w', encoding='utf-8') as f:
             f.write(md_content)
         print(f"Markdown saved to: {md_path}")
 
         # Create HTML document
         html_content = create_html_document(image_path, output, pil_image, args)
-        html_path = output_path.with_suffix('.html')
+        html_path = results_dir / f"{output_path.stem}.html"
         with open(html_path, 'w', encoding='utf-8') as f:
             f.write(html_content)
         print(f"HTML saved to: {html_path}")
@@ -500,7 +514,7 @@ def process_page(args, model, processor, config, image_path, pil_image, page_num
 
     # Save a copy of the processed image for reference if in debug mode
     if args.debug:
-        img_debug_path = output_path.with_suffix('.debug.png')
+        img_debug_path = results_dir / f"{output_path.stem}.debug.png"
         pil_image.save(img_debug_path)
         print(f"Saved debug image to: {img_debug_path}")
 
@@ -508,6 +522,9 @@ def process_page(args, model, processor, config, image_path, pil_image, page_num
 
 
 def main():
+    # Ensure results folder exists
+    ensure_results_folder()
+
     # Parse arguments
     args = parse_arguments()
 
