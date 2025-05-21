@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
 """
 DocTags Zone Visualizer - Simple script to visualize zones identified in DocTags format.
+PNG-only version: Creates debug images with rectangles around zones.
 
 Usage:
-    python doctags_visualizer.py --doctags output.doctags.txt --pdf document.pdf --page 8 --output visualization.html
+    python visualizer_png_only.py --doctags output.doctags.txt --pdf document.pdf --page 8
 """
 
 import argparse
 import os
 import re
 import sys
-import base64
-from io import BytesIO
-import tempfile
 from pathlib import Path
-import xml.etree.ElementTree as ET
 from PIL import Image, ImageDraw
 import pdf2image
 
@@ -33,19 +30,17 @@ def parse_arguments():
     """Parse command line arguments."""
     results_dir = ensure_results_folder()
 
-    parser = argparse.ArgumentParser(description='Visualize zones identified in DocTags format')
+    parser = argparse.ArgumentParser(description='Visualize zones identified in DocTags format as PNG images')
     parser.add_argument('--doctags', '-d', type=str, required=True,
                         help='Path to DocTags file')
     parser.add_argument('--pdf', '-p', type=str, required=True,
                         help='Path to original PDF file')
     parser.add_argument('--page', type=int, default=8,
                         help='Page number in PDF (starts at 1, default: 8)')
-    parser.add_argument('--output', '-o', type=str, default=str(results_dir / "visualization.html"),
-                        help='Output HTML file path')
+    parser.add_argument('--output', '-o', type=str, default=None,
+                        help='Output PNG file path (default: results/visualization_page_X.png)')
     parser.add_argument('--dpi', type=int, default=200,
                         help='DPI for PDF rendering')
-    parser.add_argument('--show', '-s', action='store_true',
-                        help='Open HTML in default browser')
     parser.add_argument('--page-count', action='store_true',
                         help='Just count pages in the PDF and exit')
     parser.add_argument('--scale', type=float, default=1.0,
@@ -174,298 +169,6 @@ def parse_doctags(doctags_path):
 
     return zones
 
-def create_visualization(image, zones, pdf_path, page_num, total_pages, output_path):
-    """Create HTML visualization with the image and overlay zones."""
-    # Convert image to base64 for embedding
-    buffered = BytesIO()
-    image.save(buffered, format="PNG")
-    img_base64 = base64.b64encode(buffered.getvalue()).decode()
-
-    # Image dimensions
-    img_width, img_height = image.size
-
-    # Define colors for different zone types
-    zone_colors = {
-        'section_header_level_1': '#FF5722',  # Orange
-        'text': '#2196F3',                    # Blue
-        'picture': '#4CAF50',                 # Green
-        'table': '#9C27B0',                   # Purple
-        'page_header': '#FFC107',             # Amber
-        'page_footer': '#795548',             # Brown
-        'default': '#607D8B'                  # Blue Grey
-    }
-
-    # Create HTML with CSS for zones
-    html = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>DocTags Zone Visualization - Page {page_num}</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }}
-        .container {{ position: relative; display: inline-block; margin: 0 auto; background-color: white; box-shadow: 0 2px 10px rgba(0,0,0,0.2); width: {img_width}px; height: {img_height}px; }}
-        .page-image {{ display: block; max-width: 100%; height: auto; }}
-        .zone-overlay {{ 
-            position: absolute; 
-            border: 2px solid; 
-            pointer-events: none;
-            background-color: rgba(255, 255, 255, 0.1);
-            transition: background-color 0.3s;
-        }}
-        .zone-overlay:hover {{ 
-            background-color: rgba(255, 255, 255, 0.3);
-        }}
-        .zone-label {{ 
-            position: absolute; 
-            top: 0; 
-            left: 0; 
-            font-size: 12px; 
-            padding: 2px 5px; 
-            background-color: rgba(255, 255, 255, 0.8); 
-            border-radius: 0 0 3px 0;
-            max-width: 100%;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }}
-        .controls {{
-            margin-bottom: 10px;
-            padding: 10px;
-            background-color: white;
-            border-radius: 3px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }}
-        .legend {{
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 10px;
-        }}
-        .legend-item {{
-            display: flex;
-            align-items: center;
-            font-size: 14px;
-        }}
-        .legend-color {{
-            width: 16px;
-            height: 16px;
-            margin-right: 5px;
-            border: 1px solid rgba(0,0,0,0.2);
-        }}
-        .zone-list {{
-            margin-top: 20px;
-            background-color: white;
-            border-radius: 3px;
-            padding: 10px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }}
-        .zone-item {{
-            margin-bottom: 10px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #eee;
-        }}
-        .zone-type {{
-            font-weight: bold;
-            display: inline-block;
-            padding: 2px 6px;
-            border-radius: 3px;
-            color: white;
-            margin-bottom: 5px;
-        }}
-        .zone-content {{
-            margin-left: 10px;
-            font-size: 14px;
-            color: #333;
-        }}
-        .pagination {{
-            margin-top: 10px;
-            display: flex;
-            gap: 5px;
-            align-items: center;
-        }}
-        .pagination a {{
-            display: inline-block;
-            padding: 5px 10px;
-            background-color: #f0f0f0;
-            text-decoration: none;
-            color: #333;
-            border-radius: 3px;
-        }}
-        .pagination a:hover {{
-            background-color: #e0e0e0;
-        }}
-        .pagination .current {{
-            background-color: #2196F3;
-            color: white;
-        }}
-        .pagination-info {{
-            margin-left: 10px;
-            color: #666;
-        }}
-    </style>
-</head>
-<body>
-    <div class="controls">
-        <h2>DocTags Zone Visualization - {Path(pdf_path).stem}</h2>
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div>
-                <label><input type="checkbox" id="toggle-labels" checked> Show Labels</label>
-                <label><input type="checkbox" id="toggle-zones" checked> Show Zones</label>
-                <label><input type="checkbox" id="toggle-transparency" checked> Transparent Zones</label>
-                
-                <div class="legend">"""
-
-    # Add legend items for each zone type
-    zone_types = set(zone['type'] for zone in zones)
-    for zone_type in zone_types:
-        color = zone_colors.get(zone_type, zone_colors['default'])
-        html += f"""
-                    <div class="legend-item">
-                        <div class="legend-color" style="background-color: {color};"></div>
-                        {zone_type}
-                    </div>"""
-
-    html += """
-                </div>
-            </div>
-            
-            <div class="pagination">"""
-
-    # Add page navigation
-    if total_pages > 1:
-        for p in range(1, total_pages + 1):
-            if p == page_num:
-                html += f"""
-                <span class="current">{p}</span>"""
-            else:
-                # Create the filename for this page
-                page_output = Path(output_path).with_stem(f"{Path(output_path).stem.split('_page_')[0]}_page_{p}")
-                html += f"""
-                <a href="{page_output.name}">{p}</a>"""
-
-        html += f"""
-                <span class="pagination-info">Page {page_num} of {total_pages}</span>"""
-
-    html += """
-            </div>
-        </div>
-    </div>
-
-    <div class="container">
-        <img src="data:image/png;base64,""" + img_base64 + """" class="page-image">
-"""
-
-    # Add zone overlays
-    for i, zone in enumerate(zones):
-        zone_type = zone['type']
-        color = zone_colors.get(zone_type, zone_colors['default'])
-
-        width = zone['x2'] - zone['x1']
-        height = zone['y2'] - zone['y1']
-
-        html += f"""
-        <div class="zone-overlay" style="left: {zone['x1']}px; top: {zone['y1']}px; width: {width}px; height: {height}px; border-color: {color};">
-            <div class="zone-label" style="border-bottom: 2px solid {color}; border-right: 2px solid {color};">
-                {zone_type}
-            </div>
-        </div>"""
-
-    html += """
-    </div>
-
-    <div class="zone-list">
-        <h3>Detected Zones:</h3>
-"""
-
-    # Add zone details
-    for zone in zones:
-        zone_type = zone['type']
-        color = zone_colors.get(zone_type, zone_colors['default'])
-
-        html += f"""
-        <div class="zone-item">
-            <div class="zone-type" style="background-color: {color};">{zone_type}</div>
-            <div class="zone-coords">Position: ({zone['x1']}, {zone['y1']}) - ({zone['x2']}, {zone['y2']})</div>
-"""
-        if zone['content']:
-            html += f"""
-            <div class="zone-content">{zone['content']}</div>
-"""
-
-        html += """
-        </div>
-"""
-
-    html += """
-    </div>
-
-    <script>
-        // Toggle labels visibility
-        document.getElementById('toggle-labels').addEventListener('change', function() {
-            var labels = document.querySelectorAll('.zone-label');
-            labels.forEach(function(label) {
-                label.style.display = this.checked ? 'block' : 'none';
-            }, this);
-        });
-        
-        // Toggle zones visibility
-        document.getElementById('toggle-zones').addEventListener('change', function() {
-            var zones = document.querySelectorAll('.zone-overlay');
-            zones.forEach(function(zone) {
-                zone.style.display = this.checked ? 'block' : 'none';
-            }, this);
-        });
-        
-        // Toggle zone transparency
-        document.getElementById('toggle-transparency').addEventListener('change', function() {
-            var zones = document.querySelectorAll('.zone-overlay');
-            zones.forEach(function(zone) {
-                zone.style.backgroundColor = this.checked ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.6)';
-            }, this);
-        });
-    </script>
-</body>
-</html>
-"""
-
-    # Save HTML file
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write(html)
-
-    print(f"Visualization saved to: {output_path}")
-
-    return output_path
-
-def normalize_coordinates(zones, image_width, image_height, grid_size=500):
-    """
-    Normalize coordinates from the DocTags grid (0-500) to actual image dimensions.
-
-    Args:
-        zones: List of zone dictionaries with x1, y1, x2, y2 coordinates
-        image_width: Width of the PDF page image in pixels
-        image_height: Height of the PDF page image in pixels
-        grid_size: The grid size used in DocTags (default 500)
-
-    Returns:
-        The same zones list with updated coordinates
-    """
-    # Create a copy of the zones to avoid modifying the original
-    normalized_zones = []
-
-    for zone in zones:
-        # Clone the zone
-        new_zone = zone.copy()
-
-        # Convert from grid coordinates to actual page dimensions
-        new_zone['x1'] = int(zone['x1'] * image_width / grid_size)
-        new_zone['y1'] = int(zone['y1'] * image_height / grid_size)
-        new_zone['x2'] = int(zone['x2'] * image_width / grid_size)
-        new_zone['y2'] = int(zone['y2'] * image_height / grid_size)
-
-        normalized_zones.append(new_zone)
-
-    return normalized_zones
-
 def create_debug_image(image, zones, page_num, output_path):
     """Create a debug image with rectangles around zones."""
     # Create a copy of the input image
@@ -527,15 +230,45 @@ def create_debug_image(image, zones, page_num, output_path):
 
     return debug_img
 
-def process_page(pdf_path, page_num, doctags_path, output_base, dpi=200, show=False, scale=1.0, scale_x=None, scale_y=None, adjust=True):
+def normalize_coordinates(zones, image_width, image_height, grid_size=500):
+    """
+    Normalize coordinates from the DocTags grid (0-500) to actual image dimensions.
+
+    Args:
+        zones: List of zone dictionaries with x1, y1, x2, y2 coordinates
+        image_width: Width of the PDF page image in pixels
+        image_height: Height of the PDF page image in pixels
+        grid_size: The grid size used in DocTags (default 500)
+
+    Returns:
+        The same zones list with updated coordinates
+    """
+    # Create a copy of the zones to avoid modifying the original
+    normalized_zones = []
+
+    for zone in zones:
+        # Clone the zone
+        new_zone = zone.copy()
+
+        # Convert from grid coordinates to actual page dimensions
+        new_zone['x1'] = int(zone['x1'] * image_width / grid_size)
+        new_zone['y1'] = int(zone['y1'] * image_height / grid_size)
+        new_zone['x2'] = int(zone['x2'] * image_width / grid_size)
+        new_zone['y2'] = int(zone['y2'] * image_height / grid_size)
+
+        normalized_zones.append(new_zone)
+
+    return normalized_zones
+
+def process_page(pdf_path, page_num, doctags_path, output_path, dpi=200, scale=1.0, scale_x=None, scale_y=None, adjust=True):
     """Process a single page of the PDF with visualization."""
     # Ensure results folder exists
     results_dir = ensure_results_folder()
 
-    # Generate output paths for this page
-    output_name = f"{Path(output_base).stem}_page_{page_num}{Path(output_base).suffix}"
-    output_path = results_dir / output_name
-    debug_output = output_path.with_suffix('.debug.png')
+    # Generate output path if not provided
+    if output_path is None:
+        output_name = f"visualization_page_{page_num}.png"
+        output_path = results_dir / output_name
 
     # Load the page image
     try:
@@ -605,23 +338,12 @@ def process_page(pdf_path, page_num, doctags_path, output_base, dpi=200, show=Fa
         print(f"Error parsing DocTags: {e}")
         return False
 
-    # Get total page count
-    total_pages = count_pdf_pages(pdf_path)
-
     # Create debug image with zones
-    create_debug_image(image, zones, page_num, debug_output)
-
-    # Create HTML visualization
-    output_html = create_visualization(image, zones, pdf_path, page_num, total_pages, output_path)
-
-    # Open in browser if requested
-    if show:
-        import webbrowser
-        webbrowser.open(f"file:///{os.path.abspath(output_html)}")
+    create_debug_image(image, zones, page_num, output_path)
 
     return True
 
-def process_all_pages(pdf_path, doctags_path, output_base, dpi=200, show_last=False, scale=1.0, scale_x=None, scale_y=None, adjust=False):
+def process_all_pages(pdf_path, doctags_path, output_base, dpi=200, scale=1.0, scale_x=None, scale_y=None, adjust=False):
     """Process all pages of the PDF and create visualizations."""
     # Ensure results folder exists
     results_dir = ensure_results_folder()
@@ -634,26 +356,18 @@ def process_all_pages(pdf_path, doctags_path, output_base, dpi=200, show_last=Fa
 
     print(f"Processing all {total_pages} pages of the PDF...")
 
-    last_html = None
-
     # Process each page
     for page_num in range(1, total_pages + 1):
         print(f"\nProcessing page {page_num} of {total_pages}...")
 
         # Generate output paths for this page
-        output_name = f"{Path(output_base).stem}_page_{page_num}{Path(output_base).suffix}"
-        output_path = results_dir / output_name
+        if output_base is None:
+            output_path = results_dir / f"visualization_page_{page_num}.png"
+        else:
+            output_path = Path(output_base).with_stem(f"{Path(output_base).stem}_page_{page_num}")
 
         # Process the page
-        success = process_page(pdf_path, page_num, doctags_path, output_path, dpi, False, scale, scale_x, scale_y, adjust)
-
-        if success:
-            last_html = output_path
-
-    # Open the last successful page in browser if requested
-    if show_last and last_html:
-        import webbrowser
-        webbrowser.open(f"file:///{os.path.abspath(last_html)}")
+        process_page(pdf_path, page_num, doctags_path, output_path, dpi, scale, scale_x, scale_y, adjust)
 
     return True
 
@@ -686,20 +400,22 @@ def main():
             args.doctags,
             args.output,
             args.dpi,
-            args.show,
             args.scale,
             args.scale_x,
             args.scale_y,
             args.adjust
         )
     else:
+        # Determine output path
+        results_dir = ensure_results_folder()
+        output_path = args.output if args.output else results_dir / f"visualization_page_{args.page}.png"
+
         process_page(
             args.pdf,
             args.page,
             args.doctags,
-            args.output,
+            output_path,
             args.dpi,
-            args.show,
             args.scale,
             args.scale_x,
             args.scale_y,
@@ -708,122 +424,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# --------------------------------------------------------
-# Helper script to generate DocTags from a PDF
-# --------------------------------------------------------
-
-def generate_doctags_from_pdf(input_pdf, page_num, output_doctags, prompt="Convert this page to docling."):
-    """
-    Helper function to generate DocTags from a PDF page using the analyzer.py script.
-    This is a wrapper for the original script functionality.
-
-    Args:
-        input_pdf: Path to the PDF file
-        page_num: Page number to process (starting from 1)
-        output_doctags: Path to save the generated DocTags
-        prompt: Prompt for the model (default: "Convert this page to docling.")
-
-    Returns:
-        bool: True if successful, False otherwise
-    """
-    # Ensure results folder exists
-    results_dir = ensure_results_folder()
-
-    # Update output path to be in results folder
-    if not isinstance(output_doctags, Path):
-        output_doctags = Path(output_doctags)
-
-    if output_doctags.parent != results_dir:
-        output_doctags = results_dir / output_doctags.name
-
-    import subprocess
-    import sys
-
-    try:
-        print(f"Generating DocTags for page {page_num} of {input_pdf}...")
-
-        # Construct command to run analyzer.py
-        cmd = [
-            sys.executable,  # Use the current Python interpreter
-            "analyzer.py",  # Path to the script
-            "--image", str(input_pdf),
-            "--page", str(page_num),
-            "--prompt", prompt
-        ]
-
-        # Run the command
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=False
-        )
-
-        # Check if the command was successful
-        if result.returncode != 0:
-            print(f"Error running analyzer.py: {result.stderr}")
-            return False
-
-        # Extract DocTags from output
-        doctags_content = None
-        output_lines = result.stdout.split('\n')
-        in_doctags = False
-        doctags_lines = []
-
-        for line in output_lines:
-            if '<doctag>' in line:
-                in_doctags = True
-
-            if in_doctags:
-                doctags_lines.append(line)
-
-            if '</doctag>' in line:
-                in_doctags = False
-
-        if not doctags_lines:
-            print("No DocTags found in the output")
-            return False
-
-        # Save DocTags to file
-        with open(output_doctags, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(doctags_lines))
-
-        print(f"DocTags saved to: {output_doctags}")
-        return True
-
-    except Exception as e:
-        print(f"Error generating DocTags: {e}")
-        return False
-
-# Command-line interface for the DocTags generator
-def generate_doctags_cli():
-    """Command-line interface for generating DocTags."""
-    results_dir = ensure_results_folder()
-
-    parser = argparse.ArgumentParser(description='Generate DocTags from a PDF page')
-    parser.add_argument('--pdf', type=str, required=True,
-                        help='Path to PDF file')
-    parser.add_argument('--page', type=int, default=1,
-                        help='Page number (starts at 1)')
-    parser.add_argument('--output', type=str, default=str(results_dir / 'output.doctags.txt'),
-                        help='Output DocTags file')
-    parser.add_argument('--prompt', type=str, default='Convert this page to docling.',
-                        help='Prompt for the model')
-
-    args = parser.parse_args()
-
-    # Generate DocTags
-    success = generate_doctags_from_pdf(
-        args.pdf,
-        args.page,
-        args.output,
-        args.prompt
-    )
-
-    return 0 if success else 1
-
-# Run the generator if called directly with --generate flag
-if __name__ == "__main__" and '--generate' in sys.argv:
-    sys.argv.remove('--generate')
-    sys.exit(generate_doctags_cli())
