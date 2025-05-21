@@ -426,6 +426,36 @@ def create_visualization(image, zones, pdf_path, page_num, total_pages, output_p
 
     return output_path
 
+def normalize_coordinates(zones, image_width, image_height, grid_size=500):
+    """
+    Normalize coordinates from the DocTags grid (0-500) to actual image dimensions.
+
+    Args:
+        zones: List of zone dictionaries with x1, y1, x2, y2 coordinates
+        image_width: Width of the PDF page image in pixels
+        image_height: Height of the PDF page image in pixels
+        grid_size: The grid size used in DocTags (default 500)
+
+    Returns:
+        The same zones list with updated coordinates
+    """
+    # Create a copy of the zones to avoid modifying the original
+    normalized_zones = []
+
+    for zone in zones:
+        # Clone the zone
+        new_zone = zone.copy()
+
+        # Convert from grid coordinates to actual page dimensions
+        new_zone['x1'] = int(zone['x1'] * image_width / grid_size)
+        new_zone['y1'] = int(zone['y1'] * image_height / grid_size)
+        new_zone['x2'] = int(zone['x2'] * image_width / grid_size)
+        new_zone['y2'] = int(zone['y2'] * image_height / grid_size)
+
+        normalized_zones.append(new_zone)
+
+    return normalized_zones
+
 def create_debug_image(image, zones, page_num, output_path):
     """Create a debug image with rectangles around zones."""
     # Create a copy of the input image
@@ -511,20 +541,22 @@ def process_page(pdf_path, page_num, doctags_path, output_base, dpi=200, show=Fa
         print(f"Found {len(zones)} zones in DocTags")
 
         # Debug output to understand scaling issues
+        # After parsing the zones from DocTags
         if zones:
+            img_width, img_height = image.size
+            print(f"Image dimensions: {img_width}x{img_height}")
+
+            # Check if we need to normalize grid coordinates
             max_x = max([zone['x2'] for zone in zones])
             max_y = max([zone['y2'] for zone in zones])
-            min_x = min([zone['x1'] for zone in zones])
-            min_y = min([zone['y1'] for zone in zones])
-            img_width, img_height = image.size
 
-            print(f"Image dimensions: {img_width}x{img_height}")
-            print(f"Zone boundaries: X({min_x}-{max_x}), Y({min_y}-{max_y})")
-            print(f"Suggested scale factors: X={img_width/max_x:.3f}, Y={img_height/max_y:.3f}")
-
-            # Always apply automatic scaling (making adjust=True by default)
-            # This solves the common scaling issue between DocTags coordinates and image dimensions
-            if adjust:
+            # If coordinates seem to be in a normalized grid (0-500 range)
+            if max_x <= 500 and max_y <= 500:
+                print(f"Detected normalized coordinates (0-500 grid)")
+                zones = normalize_coordinates(zones, img_width, img_height)
+                print(f"Applied automatic grid normalization")
+            # If auto-adjust is enabled and coordinates are not in normalized grid
+            elif adjust:
                 width, height = image.size
 
                 # Calculate appropriate scaling factors with better heuristics
