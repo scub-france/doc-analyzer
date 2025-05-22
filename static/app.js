@@ -2,47 +2,47 @@
 const activeTasks = {};
 let pollingInterval = null;
 
-// Helper functions for UI
-const UI = {
-    showLoader: (elementId) => {
-        const el = document.getElementById(elementId);
-        el.innerHTML = '<div class="loader"></div><span class="working">Processing...</span>';
-    },
-    showSuccess: (elementId, message = 'Completed') => {
-        const el = document.getElementById(elementId);
-        el.innerHTML = `<span class="success">✓ ${message}</span>`;
-    },
-    showError: (elementId, message = 'Failed') => {
-        const el = document.getElementById(elementId);
-        el.innerHTML = `<span class="error">✗ ${message}</span>`;
-    },
-    showOutput: (content) => {
-        const outputDiv = document.getElementById('output');
-        outputDiv.textContent = content;
-        outputDiv.classList.remove('hidden');
-        // Scroll to show output
-        outputDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    },
-    showImage: (src) => {
-        const img = document.getElementById('result-image');
-        const container = document.getElementById('image-container');
-        img.src = src;
-        container.classList.remove('hidden');
-        // Scroll to show image
-        container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    },
-    enableButton: (buttonId) => {
-        document.getElementById(buttonId).disabled = false;
-    },
-    disableButton: (buttonId) => {
-        document.getElementById(buttonId).disabled = true;
+// Tab switching functionality
+function switchTab(tabName) {
+    // Hide all tab contents
+    const tabContents = document.querySelectorAll('.tab-content');
+    tabContents.forEach(content => content.classList.remove('active'));
+
+    // Remove active class from all tab buttons
+    const tabButtons = document.querySelectorAll('.tab-button');
+    tabButtons.forEach(button => button.classList.remove('active'));
+
+    // Show selected tab content
+    document.getElementById(tabName + '-tab').classList.add('active');
+
+    // Add active class to selected tab button
+    event.target.classList.add('active');
+}
+
+// Update progress indicator
+function updateProgress(completedSteps) {
+    for (let i = 1; i <= 3; i++) {
+        const stepIndicator = document.getElementById(`step-${i}`);
+        const connector = document.getElementById(`connector-${i}`);
+
+        if (i <= completedSteps) {
+            stepIndicator.classList.add('completed');
+            stepIndicator.classList.remove('active');
+            if (connector) connector.classList.add('completed');
+        } else if (i === completedSteps + 1) {
+            stepIndicator.classList.add('active');
+            stepIndicator.classList.remove('completed');
+        } else {
+            stepIndicator.classList.remove('completed', 'active');
+            if (connector) connector.classList.remove('completed');
+        }
     }
-};
+}
 
 // Load PDF files on page load
 window.addEventListener('DOMContentLoaded', function() {
     const pdfStatus = document.getElementById('pdf-load-status');
-    pdfStatus.innerHTML = '<div class="loader"></div><span class="working">Loading PDF files...</span>';
+    pdfStatus.innerHTML = '<div class="loader"></div> Loading PDF files...';
 
     fetch('/pdf-files')
         .then(response => {
@@ -54,7 +54,7 @@ window.addEventListener('DOMContentLoaded', function() {
         .then(data => {
             const select = document.getElementById('pdf_file');
             if (data.length === 0) {
-                UI.showError('pdf-load-status', 'No PDF files found in the current directory');
+                pdfStatus.innerHTML = '<span class="error">No PDF files found in the current directory</span>';
                 return;
             }
 
@@ -64,11 +64,11 @@ window.addEventListener('DOMContentLoaded', function() {
                 option.textContent = file;
                 select.appendChild(option);
             });
-            UI.showSuccess('pdf-load-status', `Loaded ${data.length} PDF files`);
+            pdfStatus.innerHTML = '<span class="success">Loaded ' + data.length + ' PDF files</span>';
         })
         .catch(error => {
             console.error('Error loading PDFs:', error);
-            UI.showError('pdf-load-status', `Error: ${error.message}`);
+            pdfStatus.innerHTML = '<span class="error">Error: ' + error.message + '</span>';
         });
 
     // Run an environment check on startup
@@ -81,59 +81,55 @@ function checkEnvironment() {
     const envDetails = document.getElementById('env-details');
 
     envDiv.classList.remove('hidden');
-    envDetails.innerHTML = '<div class="loader"></div><span class="working">Checking environment...</span>';
+    envDetails.innerHTML = '<div class="loader"></div> Checking environment...';
 
     fetch('/check-environment')
         .then(response => response.json())
         .then(data => {
-            let html = '<div class="mt-2">';
+            let html = '<ul>';
 
             // Current working directory
-            html += `<p><strong>Working directory:</strong> <code>${data.cwd}</code></p>`;
+            html += '<li>Working directory: <code>' + data.cwd + '</code></li>';
 
             // Python version
-            html += `<p><strong>Python version:</strong> <code>${data.python_version}</code></p>`;
+            html += '<li>Python version: <code>' + data.python_version + '</code></li>';
 
             // Required scripts check
             if (data.missing_scripts.length === 0) {
-                html += '<p class="env-success">All required scripts found</p>';
+                html += '<li class="env-success">✓ All required scripts found</li>';
             } else {
-                html += `<p class="env-error">Missing scripts: <code>${data.missing_scripts.join(', ')}</code></p>`;
+                html += '<li class="env-error">✗ Missing scripts: <code>' + data.missing_scripts.join(', ') + '</code></li>';
             }
 
             // PDF files check
             if (data.pdf_files.length > 0) {
-                html += `<p class="env-success">Found ${data.pdf_files.length} PDF files</p>`;
-                html += '<details class="mt-1"><summary>PDF Files</summary><ul>';
-                data.pdf_files.forEach(file => {
-                    html += `<li><code>${file}</code></li>`;
-                });
-                html += '</ul></details>';
+                html += '<li class="env-success">✓ Found ' + data.pdf_files.length + ' PDF files: <code>' + data.pdf_files.join(', ') + '</code></li>';
             } else {
-                html += '<p class="env-error">No PDF files found in the working directory</p>';
+                html += '<li class="env-error">✗ No PDF files found in the working directory</li>';
             }
 
             // Results directory check
             if (data.results_dir_exists) {
-                html += '<p class="env-success">Results directory exists</p>';
+                html += '<li class="env-success">✓ Results directory exists</li>';
                 if (data.results_dir_writable) {
-                    html += '<p class="env-success">Results directory is writable</p>';
+                    html += '<li class="env-success">✓ Results directory is writable</li>';
                 } else {
-                    html += '<p class="env-error">Results directory is not writable</p>';
+                    html += '<li class="env-error">✗ Results directory is not writable</li>';
                 }
             } else {
-                html += '<p class="env-error">Results directory does not exist</p>';
+                html += '<li class="env-error">✗ Results directory does not exist</li>';
             }
 
-            html += '</div>';
+            html += '</ul>';
 
-            // List of all files for debugging (collapsible)
-            html += `<details class="mt-2"><summary>All files in directory (${data.files.length} files)</summary><pre>${data.files.join('\n')}</pre></details>`;
+            // List of all files for debugging
+            html += '<details><summary>All files in directory (' + data.files.length + ' files)</summary><pre>' +
+                data.files.join('\n') + '</pre></details>';
 
             envDetails.innerHTML = html;
         })
         .catch(error => {
-            envDetails.innerHTML = `<div class="env-error mt-2">Error checking environment: ${error.message}</div>`;
+            envDetails.innerHTML = '<div class="env-error">Error checking environment: ' + error.message + '</div>';
         });
 }
 
@@ -142,7 +138,9 @@ function manuallyRunScript() {
     const command = prompt("Enter command to run (e.g., 'python analyzer.py --image document.pdf --page 1')");
     if (!command) return;
 
-    UI.showOutput(`Running command: ${command}\nPlease wait...`);
+    const outputDiv = document.getElementById('output');
+    outputDiv.textContent = 'Running command: ' + command + '\nPlease wait...';
+    outputDiv.classList.remove('hidden');
 
     // Create form data
     const formData = new FormData();
@@ -155,12 +153,13 @@ function manuallyRunScript() {
     })
         .then(response => response.json())
         .then(data => {
-            UI.showOutput(
-                `Command: ${command}\n\n${data.success ? 'Success!\n\n' : 'Failed!\n\n'}${data.output || ''}${data.error ? '\n\nError: ' + data.error : ''}`
-            );
+            outputDiv.textContent = 'Command: ' + command + '\n\n' +
+                (data.success ? 'Success!\n\n' : 'Failed!\n\n') +
+                (data.output || '') +
+                (data.error ? '\n\nError: ' + data.error : '');
         })
         .catch(error => {
-            UI.showOutput(`Error running command: ${error.message}`);
+            outputDiv.textContent = 'Error running command: ' + error.message;
         });
 }
 
@@ -200,24 +199,32 @@ function pollTasks() {
                 if (data.done) {
                     if (data.success) {
                         // Task completed successfully
-                        UI.showSuccess(`${taskInfo.type}-status`, 'Completed');
+                        statusElement.innerHTML = '<span class="success">✓ Completed successfully!</span>';
+                        statusElement.classList.remove('hidden');
 
                         // Enable button
-                        UI.enableButton(`${taskInfo.type}-btn`);
+                        document.getElementById(`${taskInfo.type}-btn`).disabled = false;
 
                         // Display output
-                        UI.showOutput(data.output);
+                        const outputDiv = document.getElementById('output');
+                        outputDiv.textContent = data.output;
+                        outputDiv.classList.remove('hidden');
 
                         // Show image if available for visualizer
                         if (taskInfo.type === 'visualizer' && data.image_file) {
-                            UI.showImage(`/${data.image_file}?t=${new Date().getTime()}`);
+                            document.getElementById('result-image').src = '/' + data.image_file + '?t=' + new Date().getTime();
+                            document.getElementById('image-container').classList.remove('hidden');
                         }
 
-                        // Enable next step button if applicable
+                        // Enable next step button and update progress
                         if (taskInfo.type === 'analyzer') {
-                            UI.enableButton('visualizer-btn');
+                            document.getElementById('visualizer-btn').disabled = false;
+                            updateProgress(1);
                         } else if (taskInfo.type === 'visualizer') {
-                            UI.enableButton('extractor-btn');
+                            document.getElementById('extractor-btn').disabled = false;
+                            updateProgress(2);
+                        } else if (taskInfo.type === 'extractor') {
+                            updateProgress(3);
                         }
 
                         // Remove from active tasks
@@ -225,11 +232,14 @@ function pollTasks() {
                         checkAndStopPolling();
                     } else {
                         // Task failed
-                        UI.showError(`${taskInfo.type}-status`, data.error || 'Unknown error');
-                        UI.enableButton(`${taskInfo.type}-btn`);
+                        statusElement.innerHTML = '<span class="error">✗ Failed: ' + (data.error || 'Unknown error') + '</span>';
+                        statusElement.classList.remove('hidden');
+                        document.getElementById(`${taskInfo.type}-btn`).disabled = false;
 
                         // Display error output
-                        UI.showOutput(`Error: ${data.error || 'Unknown error'}`);
+                        const outputDiv = document.getElementById('output');
+                        outputDiv.textContent = 'Error: ' + (data.error || 'Unknown error');
+                        outputDiv.classList.remove('hidden');
 
                         // Remove from active tasks
                         delete activeTasks[taskId];
@@ -237,17 +247,12 @@ function pollTasks() {
                     }
                 } else {
                     // Still running
-                    statusElement.innerHTML = '<div class="loader"></div><span class="working">Processing...</span>';
+                    statusElement.innerHTML = '<div class="loader"></div><span class="working">Running...</span>';
+                    statusElement.classList.remove('hidden');
                 }
             })
             .catch(error => {
                 console.error('Error checking task status:', error);
-                UI.showError(`${taskInfo.type}-status`, 'Failed to check status');
-                UI.enableButton(`${taskInfo.type}-btn`);
-
-                // Remove from active tasks to prevent endless error messages
-                delete activeTasks[taskId];
-                checkAndStopPolling();
             });
     }
 }
@@ -263,7 +268,8 @@ function runScript(script) {
     }
 
     // Disable button
-    UI.disableButton(`${script}-btn`);
+    const button = document.getElementById(`${script}-btn`);
+    button.disabled = true;
 
     // Create form data
     const formData = new FormData();
@@ -272,7 +278,9 @@ function runScript(script) {
     formData.append('adjust', adjust);
 
     // Show running status
-    UI.showLoader(`${script}-status`);
+    const statusElement = document.getElementById(`${script}-status`);
+    statusElement.innerHTML = '<div class="loader"></div><span class="working">Starting...</span>';
+    statusElement.classList.remove('hidden');
 
     // Clear previous output
     document.getElementById('output').classList.add('hidden');
@@ -288,13 +296,14 @@ function runScript(script) {
         case 'analyzer':
             endpoint = '/run-analyzer';
             // Disable next step buttons
-            UI.disableButton('visualizer-btn');
-            UI.disableButton('extractor-btn');
+            document.getElementById('visualizer-btn').disabled = true;
+            document.getElementById('extractor-btn').disabled = true;
+            updateProgress(0);
             break;
         case 'visualizer':
             endpoint = '/run-visualizer';
             // Disable next step button
-            UI.disableButton('extractor-btn');
+            document.getElementById('extractor-btn').disabled = true;
             break;
         case 'extractor':
             endpoint = '/run-extractor';
@@ -324,25 +333,31 @@ function runScript(script) {
                 startPolling();
 
                 // Update status
-                UI.showLoader(`${script}-status`);
+                statusElement.innerHTML = '<div class="loader"></div><span class="working">Running...</span>';
 
                 // Show initial output
-                UI.showOutput(data.message || 'Task started, please wait...');
+                const outputDiv = document.getElementById('output');
+                outputDiv.textContent = data.message || 'Task started, please wait...';
+                outputDiv.classList.remove('hidden');
             } else {
                 // Failed to start task
-                UI.showError(`${script}-status`, 'Failed to start task');
-                UI.enableButton(`${script}-btn`);
+                statusElement.innerHTML = '<span class="error">✗ Failed to start task</span>';
+                button.disabled = false;
 
                 // Show error
-                UI.showOutput(`Error: ${data.error || 'Failed to start task'}`);
+                const outputDiv = document.getElementById('output');
+                outputDiv.textContent = 'Error: ' + (data.error || 'Failed to start task');
+                outputDiv.classList.remove('hidden');
             }
         })
         .catch(error => {
             console.error('Error starting task:', error);
-            UI.showError(`${script}-status`, error.message);
-            UI.enableButton(`${script}-btn`);
+            statusElement.innerHTML = '<span class="error">✗ ' + error.message + '</span>';
+            button.disabled = false;
 
             // Show error
-            UI.showOutput(`Error: ${error.message}`);
+            const outputDiv = document.getElementById('output');
+            outputDiv.textContent = 'Error: ' + error.message;
+            outputDiv.classList.remove('hidden');
         });
 }
