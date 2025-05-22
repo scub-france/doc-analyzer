@@ -96,6 +96,31 @@ p {
     display: flex;
     flex-direction: column;
     gap: var(--spacing-xs);
+    position: relative;
+}
+
+/* Specific styling for PDF form group */
+.pdf-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+/* CSS for aligning PDF Document label and status on same line */
+.pdf-group > div:first-child {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    margin-bottom: 8px !important;
+}
+
+.pdf-group > div:first-child label {
+    margin: 0 !important;
+    font-weight: 500 !important;
+    color: var(--primary-dark) !important;
+    font-size: 0.875rem !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.025em !important;
 }
 
 label {
@@ -120,6 +145,14 @@ select, input[type="number"] {
 select:focus, input:focus {
     border-color: var(--primary-medium);
     box-shadow: 0 0 0 3px rgba(97, 135, 148, 0.1);
+}
+
+/* PDF Load Status - positioned below the select but within the form group */
+#pdf-load-status {
+    margin: 0 !important;
+    font-size: 0.8rem !important;
+    font-weight: 500 !important;
+    color: #27ae60 !important;
 }
 
 /* Checkbox styling */
@@ -442,13 +475,6 @@ button:disabled {
 
 .debug-section button:hover {
     background: var(--text-dark);
-}
-
-/* Status indicators for PDF loading */
-#pdf-load-status {
-    margin-top: var(--spacing-xs);
-    font-size: 0.8rem;
-    font-weight: 500;
 }
 
 /* Utility classes */
