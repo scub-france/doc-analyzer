@@ -3,140 +3,147 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DocTags Tools</title>
+    <title>DocTags Analyzer & Visualizer</title>
     <link rel="stylesheet" href="static/styles.css">
 </head>
 <body>
-<h1>DocTags Analyzer and Visualizer</h1>
+<div class="container">
+    <h1>DocTags Analyzer & Visualizer</h1>
 
-<!-- Settings Panel -->
-<div class="settings-panel">
-    <div class="settings-row">
-        <div class="form-group">
-            <label for="pdf_file">PDF File:</label>
-            <select id="pdf_file" name="pdf_file"></select>
-            <div id="pdf-load-status"></div>
-        </div>
-        <div class="form-group">
-            <label for="page_num">Page Number:</label>
-            <input type="number" id="page_num" name="page_num" value="1" min="1">
-        </div>
-        <div class="form-group">
-            <label for="adjust">
-                <input type="checkbox" id="adjust" name="adjust" checked>
-                Auto-adjust coordinates
-            </label>
-        </div>
-    </div>
-</div>
-
-<!-- Progress Indicator -->
-<div class="progress-indicator">
-    <div class="step-indicator" id="step-1">1</div>
-    <div class="step-connector" id="connector-1"></div>
-    <div class="step-indicator" id="step-2">2</div>
-    <div class="step-connector" id="connector-2"></div>
-    <div class="step-indicator" id="step-3">3</div>
-</div>
-
-<!-- Tabs Container -->
-<div class="tabs-container">
-    <!-- Tab Buttons -->
-    <div class="tab-buttons">
-        <button class="tab-button active" onclick="switchTab('analyzer')">
-            📄 Step 1: Analyze PDF
-        </button>
-        <button class="tab-button" onclick="switchTab('visualizer')">
-            🎨 Step 2: Visualize
-        </button>
-        <button class="tab-button" onclick="switchTab('extractor')">
-            🖼️ Step 3: Extract Pictures
-        </button>
-    </div>
-
-    <!-- Tab Contents -->
-    <div id="analyzer-tab" class="tab-content active">
-        <h3>📄 Analyze PDF</h3>
-        <p>Extract DocTags structure from the PDF page using AI-powered document analysis.</p>
-
-        <button id="analyzer-btn" onclick="runScript('analyzer')">
-            🚀 Run Analysis
-        </button>
-
-        <div id="analyzer-status" class="status hidden"></div>
-
-        <div class="tab-description">
-            <strong>What this does:</strong>
-            <ul>
-                <li>Converts the PDF page to an image</li>
-                <li>Uses AI to identify document structure (headers, text, images, tables)</li>
-                <li>Generates DocTags with precise coordinate information</li>
-                <li>Saves the results to the <code>results/</code> folder</li>
-            </ul>
+    <!-- Settings Panel -->
+    <div class="settings-panel">
+        <div class="settings-row">
+            <div class="form-group">
+                <label for="pdf_file">PDF Document</label>
+                <select id="pdf_file" name="pdf_file">
+                    <option value="">Select a PDF file...</option>
+                </select>
+                <div id="pdf-load-status"></div>
+            </div>
+            <div class="form-group">
+                <label for="page_num">Page Number</label>
+                <input type="number" id="page_num" name="page_num" value="1" min="1" placeholder="1">
+            </div>
+            <div class="form-group">
+                <label for="adjust">
+                    <input type="checkbox" id="adjust" name="adjust" checked>
+                    Auto-adjust coordinates
+                </label>
+            </div>
         </div>
     </div>
 
-    <div id="visualizer-tab" class="tab-content">
-        <h3>🎨 Visualize DocTags</h3>
-        <p>Create a visual representation of the extracted DocTags with bounding boxes around detected elements.</p>
+    <!-- Progress Indicator -->
+    <div class="progress-indicator">
+        <div class="step-indicator" id="step-1">1</div>
+        <div class="step-connector" id="connector-1"></div>
+        <div class="step-indicator" id="step-2">2</div>
+        <div class="step-connector" id="connector-2"></div>
+        <div class="step-indicator" id="step-3">3</div>
+    </div>
 
-        <button id="visualizer-btn" onclick="runScript('visualizer')" disabled>
-            🎨 Generate Visualization
-        </button>
-
-        <div id="visualizer-status" class="status hidden"></div>
-
-        <div id="image-container" class="hidden">
-            <h4>Visualization Result</h4>
-            <img id="result-image" src="" alt="Visualization">
+    <!-- Tabs Container -->
+    <div class="tabs-container">
+        <!-- Tab Buttons -->
+        <div class="tab-buttons">
+            <button class="tab-button active" onclick="switchTab('analyzer')">
+                Analyze Document
+            </button>
+            <button class="tab-button" onclick="switchTab('visualizer')">
+                Visualize Structure
+            </button>
+            <button class="tab-button" onclick="switchTab('extractor')">
+                Extract Images
+            </button>
         </div>
 
-        <div class="tab-description">
-            <strong>What this does:</strong>
-            <ul>
-                <li>Reads the DocTags file from Step 1</li>
-                <li>Overlays colored rectangles on the original PDF page</li>
-                <li>Each element type gets a different color (headers, text, images, etc.)</li>
-                <li>Saves the visualization as a PNG image</li>
-            </ul>
+        <!-- Tab Contents -->
+        <div id="analyzer-tab" class="tab-content active">
+            <h3>Document Analysis</h3>
+            <p>Extract comprehensive document structure from your PDF using advanced AI-powered analysis. This process identifies headers, paragraphs, images, tables, and other document elements with precise coordinate information.</p>
+
+            <button id="analyzer-btn" onclick="runScript('analyzer')">
+                Start Analysis
+            </button>
+
+            <div id="analyzer-status" class="status hidden"></div>
+
+            <div class="tab-description">
+                <strong>Analysis Process:</strong>
+                <ul>
+                    <li>Converts your PDF page into a high-resolution image</li>
+                    <li>Applies machine learning to identify document structure</li>
+                    <li>Maps elements with precise pixel coordinates</li>
+                    <li>Generates structured DocTags format output</li>
+                    <li>Saves results to the <code>results/</code> directory</li>
+                </ul>
+            </div>
+        </div>
+
+        <div id="visualizer-tab" class="tab-content">
+            <h3>Structure Visualization</h3>
+            <p>Generate a visual representation of the analyzed document structure with color-coded bounding boxes around each detected element type.</p>
+
+            <button id="visualizer-btn" onclick="runScript('visualizer')" disabled>
+                Create Visualization
+            </button>
+
+            <div id="visualizer-status" class="status hidden"></div>
+
+            <div id="image-container" class="hidden">
+                <h4>Visualization Result</h4>
+                <img id="result-image" src="" alt="Document Structure Visualization">
+            </div>
+
+            <div class="tab-description">
+                <strong>Visualization Features:</strong>
+                <ul>
+                    <li>Color-coded element boundaries (headers, text, images, tables)</li>
+                    <li>Element type labels for easy identification</li>
+                    <li>Accurate coordinate mapping and scaling</li>
+                    <li>High-quality PNG output for documentation</li>
+                    <li>Interactive overlay on original document</li>
+                </ul>
+            </div>
+        </div>
+
+        <div id="extractor-tab" class="tab-content">
+            <h3>Image Extraction</h3>
+            <p>Automatically extract and save individual images from your document based on the detected picture regions, complete with metadata and captions.</p>
+
+            <button id="extractor-btn" onclick="runScript('extractor')" disabled>
+                Extract All Images
+            </button>
+
+            <div id="extractor-status" class="status hidden"></div>
+
+            <div class="tab-description">
+                <strong>Extraction Capabilities:</strong>
+                <ul>
+                    <li>Precise image boundary detection and cropping</li>
+                    <li>Caption and metadata preservation</li>
+                    <li>Organized file naming and directory structure</li>
+                    <li>HTML index page for easy browsing</li>
+                    <li>Automatic quality optimization and resizing</li>
+                </ul>
+            </div>
         </div>
     </div>
 
-    <div id="extractor-tab" class="tab-content">
-        <h3>🖼️ Extract Pictures</h3>
-        <p>Extract individual images from the document based on the detected picture regions.</p>
+    <!-- Output Section -->
+    <div id="output" class="output hidden"></div>
 
-        <button id="extractor-btn" onclick="runScript('extractor')" disabled>
-            🖼️ Extract Images
-        </button>
-
-        <div id="extractor-status" class="status hidden"></div>
-
-        <div class="tab-description">
-            <strong>What this does:</strong>
-            <ul>
-                <li>Identifies picture regions from the DocTags</li>
-                <li>Crops and extracts individual images</li>
-                <li>Saves each image as a separate PNG file</li>
-                <li>Creates an HTML index of all extracted images</li>
-            </ul>
-        </div>
+    <!-- Environment Check -->
+    <div id="environment-check" class="hidden">
+        <h3>System Environment</h3>
+        <div id="env-details"></div>
     </div>
-</div>
 
-<!-- Output Section -->
-<div id="output" class="output hidden"></div>
-
-<!-- Environment Check -->
-<div id="environment-check" class="hidden">
-    <h3>Environment Check</h3>
-    <div id="env-details"></div>
-</div>
-
-<!-- Debug Section -->
-<div class="debug-section">
-    <button onclick="checkEnvironment()">🔍 Environment Check</button>
-    <button onclick="manuallyRunScript()">⚙️ Manual Command</button>
+    <!-- Debug Section -->
+    <div class="debug-section">
+        <button onclick="checkEnvironment()">System Check</button>
+        <button onclick="manuallyRunScript()">Manual Command</button>
+    </div>
 </div>
 
 <script src="static/app.js"></script>
