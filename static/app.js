@@ -2,6 +2,15 @@
 const activeTasks = {};
 let pollingInterval = null;
 
+// PDF preview variables
+let currentPdf = null;
+let currentPageNum = 1;
+let totalPages = 0;
+let renderScale = 1.0;
+
+// Initialize PDF.js
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
 // Tab switching functionality
 function switchTab(tabName) {
     // Hide all tab contents
@@ -38,6 +47,143 @@ function updateProgress(completedSteps) {
         }
     }
 }
+
+// PDF Preview Functions
+async function loadPdfPreview(pdfFile) {
+    if (!pdfFile) {
+        hidePdfPreview();
+        return;
+    }
+
+    const previewContainer = document.getElementById('pdf-preview-container');
+    const loadingDiv = document.getElementById('pdf-preview-loading');
+    const canvas = document.getElementById('pdf-preview-canvas');
+
+    // Show preview container and loading
+    previewContainer.classList.remove('hidden');
+    loadingDiv.classList.remove('hidden');
+    canvas.classList.add('hidden');
+
+    try {
+        // Load the PDF
+        const loadingTask = pdfjsLib.getDocument(`/${pdfFile}`);
+        currentPdf = await loadingTask.promise;
+        totalPages = currentPdf.numPages;
+
+        // Update page info
+        updatePageInfo();
+        updatePageControls();
+
+        // Render the current page
+        await renderPage();
+
+        // Hide loading, show canvas
+        loadingDiv.classList.add('hidden');
+        canvas.classList.remove('hidden');
+
+    } catch (error) {
+        console.error('Error loading PDF preview:', error);
+        loadingDiv.innerHTML = '<span class="error">Error loading PDF preview: ' + error.message + '</span>';
+    }
+}
+
+async function renderPage() {
+    if (!currentPdf) return;
+
+    const canvas = document.getElementById('pdf-preview-canvas');
+    const ctx = canvas.getContext('2d');
+
+    try {
+        // Get the page
+        const page = await currentPdf.getPage(currentPageNum);
+
+        // Calculate scale to fit container width (max 600px)
+        const viewport = page.getViewport({ scale: 1.0 });
+        const maxWidth = 600;
+        renderScale = Math.min(maxWidth / viewport.width, 1.5);
+
+        const scaledViewport = page.getViewport({ scale: renderScale });
+
+        // Set canvas dimensions
+        canvas.height = scaledViewport.height;
+        canvas.width = scaledViewport.width;
+
+        // Render the page
+        const renderContext = {
+            canvasContext: ctx,
+            viewport: scaledViewport
+        };
+
+        await page.render(renderContext).promise;
+
+        // Update zoom info
+        document.getElementById('zoom-info').textContent = Math.round(renderScale * 100) + '%';
+
+    } catch (error) {
+        console.error('Error rendering page:', error);
+    }
+}
+
+function updatePageInfo() {
+    document.getElementById('page-info').textContent = `Page ${currentPageNum} of ${totalPages}`;
+}
+
+function updatePageControls() {
+    document.getElementById('prev-page-btn').disabled = currentPageNum <= 1;
+    document.getElementById('next-page-btn').disabled = currentPageNum >= totalPages;
+}
+
+async function changePage(delta) {
+    const newPage = currentPageNum + delta;
+    if (newPage >= 1 && newPage <= totalPages) {
+        currentPageNum = newPage;
+
+        // Update the page number input
+        document.getElementById('page_num').value = currentPageNum;
+
+        updatePageInfo();
+        updatePageControls();
+        await renderPage();
+    }
+}
+
+async function refreshPreview() {
+    const pdfFile = document.getElementById('pdf_file').value;
+    if (pdfFile) {
+        await loadPdfPreview(pdfFile);
+    }
+}
+
+function hidePdfPreview() {
+    document.getElementById('pdf-preview-container').classList.add('hidden');
+    currentPdf = null;
+    totalPages = 0;
+    currentPageNum = 1;
+}
+
+// Event listeners for PDF selection and page changes
+document.addEventListener('DOMContentLoaded', function() {
+    // PDF file selection change
+    document.getElementById('pdf_file').addEventListener('change', async function() {
+        const selectedFile = this.value;
+        if (selectedFile) {
+            await loadPdfPreview(selectedFile);
+        } else {
+            hidePdfPreview();
+        }
+    });
+
+    // Page number input change
+    document.getElementById('page_num').addEventListener('change', async function() {
+        const pageNum = parseInt(this.value);
+        if (pageNum >= 1 && pageNum <= totalPages && pageNum !== currentPageNum) {
+            currentPageNum = pageNum;
+            updatePageInfo();
+            updatePageControls();
+            await renderPage();
+        }
+    });
+});
 
 // Load PDF files on page load
 window.addEventListener('DOMContentLoaded', function() {

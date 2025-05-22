@@ -62,6 +62,25 @@
             <h3>Document Analysis</h3>
             <p>Extract comprehensive document structure from your PDF using advanced AI-powered analysis. This process identifies headers, paragraphs, images, tables, and other document elements with precise coordinate information.</p>
 
+            <!-- PDF Preview Section -->
+            <div id="pdf-preview-container" class="pdf-preview-container hidden">
+                <h4>PDF Preview</h4>
+                <div class="pdf-preview-controls">
+                    <button id="prev-page-btn" onclick="changePage(-1)" disabled>← Previous</button>
+                    <button id="next-page-btn" onclick="changePage(1)" disabled>Next →</button>
+                    <button id="refresh-preview-btn" onclick="refreshPreview()">Refresh</button>
+                    <div class="pdf-preview-info">
+                        <span id="page-info">Page 1 of 1</span> |
+                        <span id="zoom-info">100%</span>
+                    </div>
+                </div>
+                <div id="pdf-preview-loading" class="pdf-preview-loading hidden">
+                    <div class="loader"></div>
+                    Loading PDF preview...
+                </div>
+                <canvas id="pdf-preview-canvas" class="hidden"></canvas>
+            </div>
+
             <button id="analyzer-btn" onclick="runScript('analyzer')">
                 Start Analysis
             </button>
@@ -146,6 +165,8 @@
     </div>
 </div>
 
+<!-- PDF.js Library -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="static/app.js"></script>
 </body>
 </html>
