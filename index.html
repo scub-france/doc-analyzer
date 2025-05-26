@@ -71,6 +71,15 @@
             <!-- PDF Preview -->
             <div id="pdf-preview-container" class="hidden">
                 <h4>PDF Preview - Page <span id="preview-page-num">1</span></h4>
+                <div class="preview-controls">
+                    <button class="nav-btn" onclick="changePreviewPage(-1)">❮ Previous</button>
+                    <div class="page-selector">
+                        <label>Page:</label>
+                        <input type="number" id="preview-page-input" min="1" value="1" class="page-input">
+                        <button class="go-btn" onclick="goToPreviewPage()">Go</button>
+                    </div>
+                    <button class="nav-btn" onclick="changePreviewPage(1)">Next ❯</button>
+                </div>
                 <img id="pdf-preview-image" src="" alt="PDF Preview">
             </div>
 

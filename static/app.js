@@ -21,6 +21,12 @@ function loadPDFPreview() {
     // Update page number display
     document.getElementById('preview-page-num').textContent = pageNum;
 
+    // Update preview page input
+    const previewPageInput = document.getElementById('preview-page-input');
+    if (previewPageInput) {
+        previewPageInput.value = pageNum;
+    }
+
     // Load the preview image
     const previewImg = document.getElementById('pdf-preview-image');
     previewImg.src = `/pdf-preview/${encodeURIComponent(pdfFile)}/${pageNum}`;
@@ -33,6 +39,38 @@ function loadPDFPreview() {
         this.alt = 'Failed to load PDF preview';
         console.error('Failed to load PDF preview');
     };
+}
+
+// Navigate to a specific page in the preview
+function navigateToPage(pageNum) {
+    const pdfFile = document.getElementById('pdf_file').value;
+    if (!pdfFile) return;
+
+    // Update the main page number input
+    document.getElementById('page_num').value = pageNum;
+
+    // Reload the preview
+    loadPDFPreview();
+}
+
+// Handle preview page navigation
+function changePreviewPage(delta) {
+    const currentPage = parseInt(document.getElementById('page_num').value);
+    const newPage = Math.max(1, currentPage + delta);
+    navigateToPage(newPage);
+}
+
+// Handle direct page input in preview
+function goToPreviewPage() {
+    const pageInput = document.getElementById('preview-page-input');
+    const pageNum = parseInt(pageInput.value);
+
+    if (pageNum && pageNum > 0) {
+        navigateToPage(pageNum);
+    } else {
+        // Reset to current page if invalid
+        pageInput.value = document.getElementById('page_num').value;
+    }
 }
 
 // Tab switching functionality
@@ -219,6 +257,16 @@ window.addEventListener('DOMContentLoaded', function() {
     // Add event listeners for PDF selection and page number changes
     document.getElementById('pdf_file').addEventListener('change', loadPDFPreview);
     document.getElementById('page_num').addEventListener('change', loadPDFPreview);
+
+    // Add event listener for preview page input (if it exists)
+    const previewPageInput = document.getElementById('preview-page-input');
+    if (previewPageInput) {
+        previewPageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                goToPreviewPage();
+            }
+        });
+    }
 
     // Run an environment check on startup
     checkEnvironment();
