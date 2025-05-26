@@ -274,6 +274,62 @@ def results(filename):
         logger.error(f"Error serving file {filename}: {str(e)}")
         return jsonify({'error': f"Error serving file: {filename}"}), 500
 
+@app.route('/pdf-preview/<pdf_file>/<int:page_num>')
+def pdf_preview(pdf_file, page_num):
+    """Generate and serve a preview image of a PDF page"""
+    try:
+        import pdf2image
+        from PIL import Image
+        import io
+
+        # Check if PDF exists
+        if not os.path.exists(pdf_file):
+            return jsonify({'error': f'PDF file not found: {pdf_file}'}), 404
+
+        # Convert PDF page to image
+        logger.info(f"Generating preview for {pdf_file} page {page_num}")
+
+        # Use moderate DPI for preview (lower than analyzer's 200)
+        preview_dpi = 150
+
+        try:
+            pdf_images = pdf2image.convert_from_path(
+                pdf_file,
+                dpi=preview_dpi,
+                first_page=page_num,
+                last_page=page_num
+            )
+
+            if not pdf_images:
+                return jsonify({'error': f'Could not extract page {page_num} from PDF'}), 400
+
+            # Get the first (and only) page
+            pil_image = pdf_images[0]
+
+            # Resize if too large (max width 1200px for web preview)
+            max_width = 1200
+            if pil_image.width > max_width:
+                ratio = max_width / pil_image.width
+                new_height = int(pil_image.height * ratio)
+                pil_image = pil_image.resize((max_width, new_height), Image.LANCZOS)
+
+            # Convert to bytes
+            img_io = io.BytesIO()
+            pil_image.save(img_io, 'PNG', optimize=True)
+            img_io.seek(0)
+
+            return send_file(img_io, mimetype='image/png',
+                             as_attachment=False,
+                             download_name=f'{pdf_file}_page_{page_num}_preview.png')
+
+        except Exception as e:
+            logger.error(f"Error converting PDF to image: {str(e)}")
+            return jsonify({'error': f'Error converting PDF to image: {str(e)}'}), 500
+
+    except Exception as e:
+        logger.error(f"Error generating PDF preview: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/check-environment')
 def check_environment():
     """Endpoint to check the environment and available scripts"""

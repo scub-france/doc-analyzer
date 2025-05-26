@@ -8,6 +8,33 @@ const generatedOutputs = {
     extractor: false
 };
 
+// Load and display PDF preview
+function loadPDFPreview() {
+    const pdfFile = document.getElementById('pdf_file').value;
+    const pageNum = document.getElementById('page_num').value;
+
+    if (!pdfFile) {
+        document.getElementById('pdf-preview-container').classList.add('hidden');
+        return;
+    }
+
+    // Update page number display
+    document.getElementById('preview-page-num').textContent = pageNum;
+
+    // Load the preview image
+    const previewImg = document.getElementById('pdf-preview-image');
+    previewImg.src = `/pdf-preview/${encodeURIComponent(pdfFile)}/${pageNum}`;
+
+    // Show the preview container
+    document.getElementById('pdf-preview-container').classList.remove('hidden');
+
+    // Handle loading errors
+    previewImg.onerror = function() {
+        this.alt = 'Failed to load PDF preview';
+        console.error('Failed to load PDF preview');
+    };
+}
+
 // Tab switching functionality
 function switchTab(tabName) {
     // Hide all tab contents
@@ -25,7 +52,10 @@ function switchTab(tabName) {
     event.target.classList.add('active');
 
     // Show previously generated content when switching tabs
-    if (tabName === 'visualizer' && generatedOutputs.visualizer) {
+    if (tabName === 'analyzer') {
+        // Load PDF preview if a PDF is selected
+        loadPDFPreview();
+    } else if (tabName === 'visualizer' && generatedOutputs.visualizer) {
         document.getElementById('result-image').src = generatedOutputs.visualizer + '?t=' + new Date().getTime();
         document.getElementById('image-container').classList.remove('hidden');
     } else if (tabName === 'extractor' && generatedOutputs.extractor) {
@@ -185,6 +215,10 @@ window.addEventListener('DOMContentLoaded', function() {
             console.error('Error loading PDFs:', error);
             pdfStatus.innerHTML = '<span class="error">Error: ' + error.message + '</span>';
         });
+
+    // Add event listeners for PDF selection and page number changes
+    document.getElementById('pdf_file').addEventListener('change', loadPDFPreview);
+    document.getElementById('page_num').addEventListener('change', loadPDFPreview);
 
     // Run an environment check on startup
     checkEnvironment();
