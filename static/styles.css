@@ -138,7 +138,7 @@ label {
     letter-spacing: 0.025em;
 }
 
-select, input[type="number"] {
+select, input[type="number"], input[type="text"] {
     padding: var(--spacing-sm) var(--spacing-md);
     border: 1px solid var(--border-light);
     border-radius: var(--radius-sm);
@@ -179,6 +179,152 @@ label:has(input[type="checkbox"]) {
     color: var(--text-medium);
     cursor: pointer;
     font-size: 0.9rem;
+}
+
+/* Batch Processing Styles */
+.batch-options {
+    margin-top: var(--spacing-lg);
+    padding-top: var(--spacing-lg);
+    border-top: 1px solid var(--border-light);
+}
+
+.batch-toggle {
+    margin-bottom: var(--spacing-md);
+}
+
+.batch-toggle label {
+    font-weight: 500;
+    color: var(--primary-dark);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+}
+
+.batch-settings {
+    background: var(--surface-light);
+    padding: var(--spacing-lg);
+    border-radius: var(--radius-md);
+    margin-top: var(--spacing-md);
+    border: 1px solid var(--border-light);
+}
+
+.batch-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 2fr;
+    gap: var(--spacing-lg);
+    align-items: end;
+    margin-bottom: var(--spacing-md);
+}
+
+.batch-info {
+    margin-top: var(--spacing-md);
+    padding: var(--spacing-md);
+    background: var(--accent-amber);
+    border-radius: var(--radius-sm);
+    border-left: 3px solid var(--warning);
+}
+
+.batch-info p {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--text-dark);
+}
+
+/* Batch button and button group */
+.button-group {
+    display: flex;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+}
+
+.batch-button {
+    background: var(--primary-dark);
+    padding: var(--spacing-md) var(--spacing-xl);
+}
+
+.batch-button:hover {
+    background: var(--primary-medium);
+}
+
+/* Batch status */
+.batch-status {
+    margin-top: var(--spacing-md);
+    padding: var(--spacing-lg);
+    background: var(--surface-light);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-light);
+}
+
+.batch-progress {
+    margin-bottom: var(--spacing-md);
+}
+
+.batch-progress-bar {
+    width: 100%;
+    height: 20px;
+    background: var(--border-light);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    position: relative;
+}
+
+.batch-progress-fill {
+    height: 100%;
+    background: var(--primary-medium);
+    transition: width 0.3s ease;
+    position: relative;
+}
+
+.batch-progress-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-dark);
+}
+
+.batch-details {
+    max-height: 300px;
+    overflow-y: auto;
+    background: var(--surface-white);
+    padding: var(--spacing-md);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-light);
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 0.8rem;
+}
+
+.batch-page-status {
+    padding: var(--spacing-xs) 0;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.batch-page-status:last-child {
+    border-bottom: none;
+}
+
+.batch-page-status.success {
+    color: var(--success);
+}
+
+.batch-page-status.error {
+    color: var(--error);
+}
+
+.batch-page-status.processing {
+    color: var(--warning);
+}
+
+.batch-report-link {
+    color: var(--primary-medium);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.batch-report-link:hover {
+    text-decoration: underline;
 }
 
 /* Progress Indicator */
@@ -439,77 +585,6 @@ button:disabled {
     margin: 0 0 var(--spacing-md) 0;
     font-size: 1rem;
     font-weight: 500;
-}
-
-/* Preview Controls */
-.preview-controls {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: var(--spacing-md);
-    margin-bottom: var(--spacing-lg);
-    padding: var(--spacing-md);
-    background: var(--surface-white);
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border-light);
-}
-
-.nav-btn {
-    padding: var(--spacing-sm) var(--spacing-md);
-    background: var(--primary-medium);
-    color: white;
-    border: none;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    font-size: 0.875rem;
-    font-weight: 500;
-    transition: all 0.2s ease;
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-}
-
-.nav-btn:hover {
-    background: var(--primary-dark);
-}
-
-.page-selector {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-}
-
-.page-selector label {
-    margin: 0;
-    font-weight: 500;
-    color: var(--text-medium);
-    font-size: 0.875rem;
-}
-
-.page-input {
-    width: 60px;
-    padding: var(--spacing-xs) var(--spacing-sm);
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-sm);
-    text-align: center;
-    font-size: 0.875rem;
-}
-
-.go-btn {
-    padding: var(--spacing-xs) var(--spacing-md);
-    background: var(--accent-mint);
-    color: var(--primary-dark);
-    border: none;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    font-size: 0.875rem;
-    font-weight: 500;
-    transition: all 0.2s ease;
-}
-
-.go-btn:hover {
-    background: var(--primary-medium);
-    color: white;
 }
 
 #pdf-preview-image {
@@ -782,6 +857,19 @@ button:disabled {
         gap: var(--spacing-md);
     }
 
+    .batch-row {
+        grid-template-columns: 1fr;
+        gap: var(--spacing-md);
+    }
+
+    .button-group {
+        flex-direction: column;
+    }
+
+    .batch-button {
+        width: 100%;
+    }
+
     .tab-buttons {
         grid-template-columns: 1fr;
     }
@@ -832,16 +920,5 @@ button:disabled {
 
     #modal-image {
         max-height: 60vh;
-    }
-
-    /* Preview controls responsive */
-    .preview-controls {
-        flex-wrap: wrap;
-        gap: var(--spacing-sm);
-    }
-
-    .nav-btn {
-        font-size: 0.8rem;
-        padding: var(--spacing-xs) var(--spacing-sm);
     }
 }

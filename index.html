@@ -31,6 +31,35 @@
                 </label>
             </div>
         </div>
+
+        <!-- Batch Processing Options -->
+        <div class="batch-options">
+            <div class="batch-toggle">
+                <label for="batch_mode">
+                    <input type="checkbox" id="batch_mode" name="batch_mode" onchange="toggleBatchMode()">
+                    Process Multiple Pages
+                </label>
+            </div>
+            <div id="batch-settings" class="batch-settings hidden">
+                <div class="batch-row">
+                    <div class="form-group">
+                        <label for="batch_start">Start Page</label>
+                        <input type="number" id="batch_start" name="batch_start" value="1" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="batch_end">End Page</label>
+                        <input type="number" id="batch_end" name="batch_end" placeholder="Last page">
+                    </div>
+                    <div class="form-group">
+                        <label for="batch_pages">Or Specific Pages</label>
+                        <input type="text" id="batch_pages" name="batch_pages" placeholder="e.g., 1,3,5-7,10">
+                    </div>
+                </div>
+                <div class="batch-info">
+                    <p><strong>Batch Processing:</strong> Process multiple pages in sequence through all three steps (Analyze → Visualize → Extract)</p>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Progress Indicator -->
@@ -62,24 +91,21 @@
             <h3>Document Analysis</h3>
             <p>Extract comprehensive document structure from your PDF using advanced AI-powered analysis. This process identifies headers, paragraphs, images, tables, and other document elements with precise coordinate information.</p>
 
-            <button id="analyzer-btn" onclick="runScript('analyzer')">
-                Start Analysis
-            </button>
+            <div class="button-group">
+                <button id="analyzer-btn" onclick="runScript('analyzer')">
+                    Start Analysis
+                </button>
+                <button id="batch-btn" onclick="runBatchProcessing()" class="batch-button hidden">
+                    Process All Selected Pages
+                </button>
+            </div>
 
             <div id="analyzer-status" class="status hidden"></div>
+            <div id="batch-status" class="batch-status hidden"></div>
 
             <!-- PDF Preview -->
             <div id="pdf-preview-container" class="hidden">
                 <h4>PDF Preview - Page <span id="preview-page-num">1</span></h4>
-                <div class="preview-controls">
-                    <button class="nav-btn" onclick="changePreviewPage(-1)">❮ Previous</button>
-                    <div class="page-selector">
-                        <label>Page:</label>
-                        <input type="number" id="preview-page-input" min="1" value="1" class="page-input">
-                        <button class="go-btn" onclick="goToPreviewPage()">Go</button>
-                    </div>
-                    <button class="nav-btn" onclick="changePreviewPage(1)">Next ❯</button>
-                </div>
                 <img id="pdf-preview-image" src="" alt="PDF Preview">
             </div>
 
