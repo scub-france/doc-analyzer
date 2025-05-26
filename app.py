@@ -11,7 +11,10 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__, static_folder='static')
+# Initialize Flask app with frontend folder structure
+app = Flask(__name__,
+            static_folder='frontend/static',
+            static_url_path='/static')
 
 # Dictionary to store background task results
 task_results = {}
@@ -23,21 +26,27 @@ def ensure_results_folder():
         results_dir.mkdir()
     return results_dir
 
-# Ensure static folder exists
-def ensure_static_folder():
-    static_dir = Path("static")
+# Ensure frontend folders exist
+def ensure_frontend_folders():
+    frontend_dir = Path("frontend")
+    if not frontend_dir.exists():
+        frontend_dir.mkdir()
+        logger.info(f"Created frontend directory: {frontend_dir}")
+
+    static_dir = frontend_dir / "static"
     if not static_dir.exists():
         static_dir.mkdir()
         logger.info(f"Created static directory: {static_dir}")
-    return static_dir
+
+    return frontend_dir, static_dir
 
 @app.route('/')
 def index():
-    return send_file('index.html')
+    return send_file('frontend/index.html')
 
 @app.route('/static/<path:filename>')
 def serve_static(filename):
-    return send_file(os.path.join('static', filename))
+    return send_file(os.path.join('frontend/static', filename))
 
 @app.route('/pdf-files')
 def pdf_files():
@@ -261,214 +270,6 @@ def run_extractor():
         logger.error(f"Error starting extractor: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/run-batch', methods=['POST'])
-def run_batch():
-    """Run batch processing for multiple pages"""
-    try:
-        pdf_file = request.form.get('pdf_file')
-        adjust = request.form.get('adjust') == 'true'
-        batch_start = request.form.get('batch_start', '1')
-        batch_end = request.form.get('batch_end', '')
-        batch_pages = request.form.get('batch_pages', '')
-
-        if not pdf_file:
-            return jsonify({'success': False, 'error': 'PDF file not specified'}), 400
-
-        # Check if PDF exists
-        if not os.path.exists(pdf_file):
-            logger.error(f"PDF file not found: {pdf_file}")
-            return jsonify({'success': False, 'error': f'PDF file not found: {pdf_file}'}), 400
-
-        # Check if batch_processor.py exists
-        if not os.path.exists('batch_processor.py'):
-            logger.error("batch_processor.py not found in current directory")
-            return jsonify({'success': False, 'error': 'batch_processor.py not found in current directory'}), 500
-
-        # Build the command
-        command = f"python batch_processor.py --pdf {pdf_file}"
-
-        if batch_pages:
-            # Specific pages provided
-            command += f" --pages \"{batch_pages}\""
-            # Try to count the pages for progress tracking
-            pages = []
-            for part in batch_pages.split(','):
-                part = part.strip()
-                if '-' in part:
-                    try:
-                        start, end = map(int, part.split('-'))
-                        pages.extend(range(start, end + 1))
-                    except:
-                        pass
-                else:
-                    try:
-                        pages.append(int(part))
-                    except:
-                        pass
-            total_pages = len(set(pages))
-        else:
-            # Page range
-            command += f" --start {batch_start}"
-            if batch_end:
-                command += f" --end {batch_end}"
-                total_pages = int(batch_end) - int(batch_start) + 1
-            else:
-                # Try to get PDF page count
-                try:
-                    from pdf2image.pdf2image import pdfinfo_from_path
-                    info = pdfinfo_from_path(pdf_file)
-                    pdf_pages = info["Pages"]
-                    total_pages = pdf_pages - int(batch_start) + 1
-                except:
-                    total_pages = 1  # Default if we can't determine
-
-        if adjust:
-            command += " --adjust"
-
-        # Generate a task ID
-        task_id = f"batch_{int(time.time())}"
-
-        # Initialize task result with progress tracking
-        task_results[task_id] = {
-            'success': None,
-            'output': "Starting batch processing...",
-            'done': False,
-            'progress': {
-                'total': total_pages,
-                'completed': 0,
-                'current_page': int(batch_start),
-                'completed_pages': []
-            }
-        }
-
-        # Start background thread with progress monitoring
-        thread = threading.Thread(target=run_batch_command_with_progress, args=(task_id, command, total_pages))
-        thread.daemon = True
-        thread.start()
-
-        # Return the task ID immediately
-        return jsonify({
-            'success': True,
-            'task_id': task_id,
-            'message': f"Batch processing started for {total_pages} pages...",
-            'total_pages': total_pages
-        })
-    except Exception as e:
-        import traceback
-        logger.error(f"Error starting batch processing: {str(e)}")
-        logger.error(traceback.format_exc())
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-def run_batch_command_with_progress(task_id, command, total_pages):
-    """Run batch command and monitor progress"""
-    logger.info(f"Running batch command: {command}")
-    try:
-        # Run the command with real-time output capture
-        process = subprocess.Popen(
-            command,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            universal_newlines=True,
-            bufsize=1
-        )
-
-        output_lines = []
-        completed_pages = []
-        current_page = 1
-
-        # Read output line by line
-        for line in process.stdout:
-            output_lines.append(line)
-
-            # Parse progress from output
-            if "Processing page" in line:
-                try:
-                    # Extract page number from lines like "[1/10] Processing page 5"
-                    import re
-                    match = re.search(r'Processing page (\d+)', line)
-                    if match:
-                        current_page = int(match.group(1))
-
-                    # Update progress
-                    task_results[task_id]['progress']['current_page'] = current_page
-                except:
-                    pass
-
-            elif "✓" in line and "completed for page" in line:
-                try:
-                    # Extract completed page number
-                    import re
-                    match = re.search(r'page (\d+)', line)
-                    if match:
-                        page_num = int(match.group(1))
-                        if page_num not in completed_pages:
-                            completed_pages.append(page_num)
-                            task_results[task_id]['progress']['completed'] = len(completed_pages)
-                            task_results[task_id]['progress']['completed_pages'] = sorted(completed_pages)
-                except:
-                    pass
-
-        process.wait()
-
-        # Get final output
-        full_output = ''.join(output_lines)
-
-        # Check if batch report was created
-        report_file = None
-        if "Batch report created:" in full_output:
-            try:
-                import re
-                match = re.search(r'Batch report created: (.+)', full_output)
-                if match:
-                    report_path = match.group(1).strip()
-                    # Convert to relative path for web access
-                    if os.path.exists(report_path):
-                        report_file = report_path.replace('\\', '/')
-            except:
-                pass
-
-        # Extract summary
-        summary = None
-        if "Success rate:" in full_output:
-            try:
-                import re
-                match = re.search(r'Success rate: (.+)', full_output)
-                if match:
-                    summary = match.group(1).strip()
-            except:
-                pass
-
-        # Update task result
-        if process.returncode == 0:
-            task_results[task_id] = {
-                'success': True,
-                'output': full_output,
-                'done': True,
-                'report_file': report_file,
-                'summary': summary
-            }
-            logger.info(f"Batch processing completed successfully: {task_id}")
-        else:
-            task_results[task_id] = {
-                'success': False,
-                'error': f"Batch processing failed with return code {process.returncode}",
-                'output': full_output,
-                'done': True
-            }
-            logger.error(f"Batch processing failed: {task_id}")
-
-    except Exception as e:
-        import traceback
-        logger.error(f"Unexpected error in batch processing: {task_id} - {str(e)}")
-        logger.error(traceback.format_exc())
-        task_results[task_id] = {
-            'success': False,
-            'error': f"Exception: {str(e)}",
-            'done': True
-        }
-
 @app.route('/results/<path:filename>')
 def results(filename):
     try:
@@ -549,7 +350,7 @@ def check_environment():
         files = os.listdir('.')
 
         # Check for required scripts
-        required_scripts = ['analyzer.py', 'visualizer.py', 'picture_extractor.py', 'batch_processor.py']
+        required_scripts = ['analyzer.py', 'visualizer.py', 'picture_extractor.py']
         missing_scripts = [script for script in required_scripts if script not in files]
 
         # Check for PDFs
@@ -642,5 +443,5 @@ def run_manual_command():
 if __name__ == '__main__':
     # Ensure folders exist
     ensure_results_folder()
-    ensure_static_folder()
+    ensure_frontend_folders()
     app.run(debug=True, host='127.0.0.1', port=5000)
