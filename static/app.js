@@ -2,15 +2,6 @@
 const activeTasks = {};
 let pollingInterval = null;
 
-// PDF preview variables
-let currentPdf = null;
-let currentPageNum = 1;
-let totalPages = 0;
-let renderScale = 1.0;
-
-// Initialize PDF.js
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-
 // Tab switching functionality
 function switchTab(tabName) {
     // Hide all tab contents
@@ -48,142 +39,104 @@ function updateProgress(completedSteps) {
     }
 }
 
-// PDF Preview Functions
-async function loadPdfPreview(pdfFile) {
-    if (!pdfFile) {
-        hidePdfPreview();
-        return;
+// Load extracted images from the results folder
+function loadExtractedImages() {
+    const imageGallery = document.getElementById('extracted-images-gallery');
+    const imageContainer = document.getElementById('extracted-images-container');
+
+    // First try to load the index.html to get the list of images
+    fetch('/results/pictures/index.html')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('No extracted images found');
+            }
+            return response.text();
+        })
+        .then(html => {
+            // Parse the HTML to extract image information
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const imageCards = doc.querySelectorAll('.picture-card');
+
+            if (imageCards.length === 0) {
+                imageGallery.innerHTML = '<div class="no-images">No images were extracted from this page.</div>';
+                return;
+            }
+
+            let galleryHTML = '';
+            imageCards.forEach((card, index) => {
+                const img = card.querySelector('img');
+                const caption = card.querySelector('.picture-caption');
+                const coords = card.querySelector('.picture-coords');
+
+                if (img) {
+                    const imgSrc = img.getAttribute('src');
+                    const pictureId = index + 1;
+                    const captionText = caption ? caption.textContent : '';
+                    const coordsText = coords ? coords.textContent : '';
+
+                    galleryHTML += `
+                        <div class="extracted-image-card">
+                            <div class="image-wrapper">
+                                <img src="/results/pictures/${imgSrc}" alt="Extracted Image ${pictureId}" 
+                                     onclick="openImageModal('/results/pictures/${imgSrc}', '${captionText}', '${coordsText}')">
+                            </div>
+                            <div class="image-info">
+                                <h4>Picture ${pictureId}</h4>
+                                ${captionText ? `<p class="image-caption">${captionText}</p>` : ''}
+                                <p class="image-coords">${coordsText}</p>
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+
+            imageGallery.innerHTML = galleryHTML;
+            imageContainer.classList.remove('hidden');
+        })
+        .catch(error => {
+            console.log('No extracted images found:', error);
+            imageGallery.innerHTML = '<div class="no-images">No images have been extracted yet. Run the image extraction first.</div>';
+        });
+}
+
+// Open image in modal for better viewing
+function openImageModal(imageSrc, caption, coords) {
+    // Create modal if it doesn't exist
+    let modal = document.getElementById('image-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'image-modal';
+        modal.className = 'image-modal';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <span class="modal-close" onclick="closeImageModal()">&times;</span>
+                <img id="modal-image" src="" alt="Extracted Image">
+                <div class="modal-info">
+                    <p id="modal-caption"></p>
+                    <p id="modal-coords"></p>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
     }
 
-    const previewContainer = document.getElementById('pdf-preview-container');
-    const loadingDiv = document.getElementById('pdf-preview-loading');
-    const canvas = document.getElementById('pdf-preview-canvas');
+    // Set image and info
+    document.getElementById('modal-image').src = imageSrc;
+    document.getElementById('modal-caption').textContent = caption;
+    document.getElementById('modal-coords').textContent = coords;
 
-    // Show preview container and loading
-    previewContainer.classList.remove('hidden');
-    loadingDiv.classList.remove('hidden');
-    canvas.classList.add('hidden');
+    // Show modal
+    modal.classList.add('active');
+}
 
-    try {
-        // Load the PDF
-        const loadingTask = pdfjsLib.getDocument(`/${pdfFile}`);
-        currentPdf = await loadingTask.promise;
-        totalPages = currentPdf.numPages;
-
-        // Update page info
-        updatePageInfo();
-        updatePageControls();
-
-        // Render the current page
-        await renderPage();
-
-        // Hide loading, show canvas
-        loadingDiv.classList.add('hidden');
-        canvas.classList.remove('hidden');
-
-    } catch (error) {
-        console.error('Error loading PDF preview:', error);
-        loadingDiv.innerHTML = '<span class="error">Error loading PDF preview: ' + error.message + '</span>';
+// Close image modal
+function closeImageModal() {
+    const modal = document.getElementById('image-modal');
+    if (modal) {
+        modal.classList.remove('active');
     }
 }
-
-async function renderPage() {
-    if (!currentPdf) return;
-
-    const canvas = document.getElementById('pdf-preview-canvas');
-    const ctx = canvas.getContext('2d');
-
-    try {
-        // Get the page
-        const page = await currentPdf.getPage(currentPageNum);
-
-        // Calculate scale to fit container width (max 600px)
-        const viewport = page.getViewport({ scale: 1.0 });
-        const maxWidth = 600;
-        renderScale = Math.min(maxWidth / viewport.width, 1.5);
-
-        const scaledViewport = page.getViewport({ scale: renderScale });
-
-        // Set canvas dimensions
-        canvas.height = scaledViewport.height;
-        canvas.width = scaledViewport.width;
-
-        // Render the page
-        const renderContext = {
-            canvasContext: ctx,
-            viewport: scaledViewport
-        };
-
-        await page.render(renderContext).promise;
-
-        // Update zoom info
-        document.getElementById('zoom-info').textContent = Math.round(renderScale * 100) + '%';
-
-    } catch (error) {
-        console.error('Error rendering page:', error);
-    }
-}
-
-function updatePageInfo() {
-    document.getElementById('page-info').textContent = `Page ${currentPageNum} of ${totalPages}`;
-}
-
-function updatePageControls() {
-    document.getElementById('prev-page-btn').disabled = currentPageNum <= 1;
-    document.getElementById('next-page-btn').disabled = currentPageNum >= totalPages;
-}
-
-async function changePage(delta) {
-    const newPage = currentPageNum + delta;
-    if (newPage >= 1 && newPage <= totalPages) {
-        currentPageNum = newPage;
-
-        // Update the page number input
-        document.getElementById('page_num').value = currentPageNum;
-
-        updatePageInfo();
-        updatePageControls();
-        await renderPage();
-    }
-}
-
-async function refreshPreview() {
-    const pdfFile = document.getElementById('pdf_file').value;
-    if (pdfFile) {
-        await loadPdfPreview(pdfFile);
-    }
-}
-
-function hidePdfPreview() {
-    document.getElementById('pdf-preview-container').classList.add('hidden');
-    currentPdf = null;
-    totalPages = 0;
-    currentPageNum = 1;
-}
-
-// Event listeners for PDF selection and page changes
-document.addEventListener('DOMContentLoaded', function() {
-    // PDF file selection change
-    document.getElementById('pdf_file').addEventListener('change', async function() {
-        const selectedFile = this.value;
-        if (selectedFile) {
-            await loadPdfPreview(selectedFile);
-        } else {
-            hidePdfPreview();
-        }
-    });
-
-    // Page number input change
-    document.getElementById('page_num').addEventListener('change', async function() {
-        const pageNum = parseInt(this.value);
-        if (pageNum >= 1 && pageNum <= totalPages && pageNum !== currentPageNum) {
-            currentPageNum = pageNum;
-            updatePageInfo();
-            updatePageControls();
-            await renderPage();
-        }
-    });
-});
 
 // Load PDF files on page load
 window.addEventListener('DOMContentLoaded', function() {
@@ -219,6 +172,9 @@ window.addEventListener('DOMContentLoaded', function() {
 
     // Run an environment check on startup
     checkEnvironment();
+
+    // Try to load any existing extracted images
+    loadExtractedImages();
 });
 
 // Check the environment
@@ -362,6 +318,13 @@ function pollTasks() {
                             document.getElementById('image-container').classList.remove('hidden');
                         }
 
+                        // Load extracted images if extractor completed
+                        if (taskInfo.type === 'extractor') {
+                            setTimeout(() => {
+                                loadExtractedImages();
+                            }, 1000); // Small delay to ensure files are written
+                        }
+
                         // Enable next step button and update progress
                         if (taskInfo.type === 'analyzer') {
                             document.getElementById('visualizer-btn').disabled = false;
@@ -434,6 +397,11 @@ function runScript(script) {
     // Hide previous image if not running visualizer
     if (script !== 'visualizer') {
         document.getElementById('image-container').classList.add('hidden');
+    }
+
+    // Hide extracted images if not running extractor
+    if (script !== 'extractor') {
+        document.getElementById('extracted-images-container').classList.add('hidden');
     }
 
     // Determine endpoint

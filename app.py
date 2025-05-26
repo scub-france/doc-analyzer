@@ -39,27 +39,6 @@ def index():
 def serve_static(filename):
     return send_file(os.path.join('static', filename))
 
-@app.route('/<path:filename>')
-def serve_pdf(filename):
-    """Serve PDF files from the current directory"""
-    try:
-        # Security check: only allow PDF files and prevent directory traversal
-        if not filename.endswith('.pdf') or '..' in filename or '/' in filename:
-            logger.warning(f"Blocked access to non-PDF or invalid file: {filename}")
-            return jsonify({"error": "Access denied"}), 403
-
-        # Check if file exists in current directory
-        file_path = Path(filename)
-        if not file_path.exists() or not file_path.is_file():
-            logger.error(f"PDF file not found: {filename}")
-            return jsonify({"error": f"PDF file not found: {filename}"}), 404
-
-        logger.info(f"Serving PDF file: {filename}")
-        return send_file(filename, mimetype='application/pdf')
-    except Exception as e:
-        logger.error(f"Error serving PDF {filename}: {str(e)}")
-        return jsonify({"error": f"Error serving PDF: {str(e)}"}), 500
-
 @app.route('/pdf-files')
 def pdf_files():
     try:
@@ -285,10 +264,15 @@ def run_extractor():
 @app.route('/results/<path:filename>')
 def results(filename):
     try:
-        return send_file(os.path.join('results', filename))
+        file_path = os.path.join('results', filename)
+        if os.path.exists(file_path):
+            return send_file(file_path)
+        else:
+            logger.error(f"File not found: {file_path}")
+            return jsonify({'error': f"File not found: {filename}"}), 404
     except Exception as e:
         logger.error(f"Error serving file {filename}: {str(e)}")
-        return jsonify({'error': f"File not found: {filename}"}), 404
+        return jsonify({'error': f"Error serving file: {filename}"}), 500
 
 @app.route('/check-environment')
 def check_environment():

@@ -72,7 +72,7 @@ h4 {
     color: var(--primary-dark);
     font-weight: 500;
     font-size: 1rem;
-    margin: 0 0 var(--spacing-sm) 0;
+    margin: 0 0 var(--spacing-md) 0;
 }
 
 p {
@@ -279,60 +279,6 @@ label:has(input[type="checkbox"]) {
     display: block;
 }
 
-/* PDF Preview Section */
-.pdf-preview-container {
-    margin-top: var(--spacing-lg);
-    padding: var(--spacing-lg);
-    background: var(--surface-light);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border-light);
-}
-
-.pdf-preview-controls {
-    display: flex;
-    gap: var(--spacing-md);
-    margin-bottom: var(--spacing-md);
-    align-items: center;
-}
-
-.pdf-preview-controls button {
-    padding: var(--spacing-xs) var(--spacing-md);
-    font-size: 0.8rem;
-    background: var(--text-medium);
-}
-
-.pdf-preview-controls button:hover {
-    background: var(--text-dark);
-}
-
-.pdf-preview-controls button:disabled {
-    background: var(--border-light);
-    color: var(--text-light);
-}
-
-.pdf-preview-info {
-    font-size: 0.8rem;
-    color: var(--text-medium);
-    margin-left: auto;
-}
-
-#pdf-preview-canvas {
-    max-width: 100%;
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-sm);
-    box-shadow: var(--shadow-sm);
-    background: white;
-    display: block;
-    margin: 0 auto;
-}
-
-.pdf-preview-loading {
-    text-align: center;
-    padding: var(--spacing-xl);
-    color: var(--text-medium);
-    font-size: 0.9rem;
-}
-
 /* Buttons */
 button {
     padding: var(--spacing-md) var(--spacing-lg);
@@ -455,7 +401,7 @@ button:disabled {
     box-shadow: var(--shadow-md);
 }
 
-/* Image container */
+/* Image container (for visualizer) */
 #image-container {
     margin-top: var(--spacing-lg);
     text-align: center;
@@ -476,6 +422,187 @@ button:disabled {
     max-width: 100%;
     border-radius: var(--radius-sm);
     box-shadow: var(--shadow-md);
+}
+
+/* Extracted Images Gallery */
+#extracted-images-container {
+    margin-top: var(--spacing-lg);
+    padding: var(--spacing-lg);
+    background: var(--surface-light);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-light);
+}
+
+#extracted-images-container h4 {
+    color: var(--primary-dark);
+    margin: 0 0 var(--spacing-lg) 0;
+    font-size: 1rem;
+    font-weight: 500;
+    text-align: center;
+}
+
+.images-gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: var(--spacing-lg);
+    margin-top: var(--spacing-md);
+}
+
+.extracted-image-card {
+    background: var(--surface-white);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+    transition: all 0.2s ease;
+    border: 1px solid var(--border-light);
+}
+
+.extracted-image-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+}
+
+.image-wrapper {
+    position: relative;
+    width: 100%;
+    height: 200px;
+    overflow: hidden;
+    background: var(--surface-light);
+    cursor: pointer;
+}
+
+.image-wrapper img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    transition: transform 0.2s ease;
+}
+
+.image-wrapper:hover img {
+    transform: scale(1.05);
+}
+
+.image-info {
+    padding: var(--spacing-md);
+}
+
+.image-info h4 {
+    margin: 0 0 var(--spacing-xs) 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--primary-dark);
+}
+
+.image-caption {
+    margin: 0 0 var(--spacing-xs) 0;
+    font-size: 0.8rem;
+    color: var(--text-medium);
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.image-coords {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--text-light);
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.no-images {
+    text-align: center;
+    padding: var(--spacing-xl);
+    color: var(--text-light);
+    font-style: italic;
+    background: var(--surface-white);
+    border-radius: var(--radius-md);
+    border: 2px dashed var(--border-light);
+}
+
+/* Image Modal */
+.image-modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(4px);
+}
+
+.image-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-lg);
+}
+
+.modal-content {
+    background: var(--surface-white);
+    border-radius: var(--radius-lg);
+    max-width: 90vw;
+    max-height: 90vh;
+    overflow: auto;
+    position: relative;
+    box-shadow: var(--shadow-lg);
+}
+
+.modal-close {
+    position: absolute;
+    top: var(--spacing-md);
+    right: var(--spacing-lg);
+    color: var(--text-light);
+    font-size: 2rem;
+    font-weight: bold;
+    cursor: pointer;
+    z-index: 1001;
+    background: var(--surface-white);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--shadow-md);
+    transition: all 0.2s ease;
+}
+
+.modal-close:hover {
+    color: var(--error);
+    transform: scale(1.1);
+}
+
+#modal-image {
+    max-width: 100%;
+    max-height: 70vh;
+    object-fit: contain;
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.modal-info {
+    padding: var(--spacing-lg);
+    border-top: 1px solid var(--border-light);
+}
+
+.modal-info p {
+    margin: 0 0 var(--spacing-sm) 0;
+    font-size: 0.9rem;
+}
+
+#modal-caption {
+    color: var(--text-dark);
+    font-weight: 500;
+}
+
+#modal-coords {
+    color: var(--text-light);
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 0.8rem;
 }
 
 /* Environment check */
@@ -593,13 +720,21 @@ button:disabled {
         padding: var(--spacing-lg);
     }
 
-    .pdf-preview-controls {
-        flex-direction: column;
-        align-items: stretch;
+    .images-gallery {
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: var(--spacing-md);
     }
 
-    .pdf-preview-info {
-        margin-left: 0;
-        text-align: center;
+    .image-wrapper {
+        height: 150px;
+    }
+
+    .modal-content {
+        margin: var(--spacing-md);
+        max-width: calc(100vw - 32px);
+    }
+
+    #modal-image {
+        max-height: 60vh;
     }
 }
