@@ -2,6 +2,12 @@
 const activeTasks = {};
 let pollingInterval = null;
 
+// Keep track of generated outputs
+const generatedOutputs = {
+    visualizer: null,
+    extractor: false
+};
+
 // Tab switching functionality
 function switchTab(tabName) {
     // Hide all tab contents
@@ -17,6 +23,14 @@ function switchTab(tabName) {
 
     // Add active class to selected tab button
     event.target.classList.add('active');
+
+    // Show previously generated content when switching tabs
+    if (tabName === 'visualizer' && generatedOutputs.visualizer) {
+        document.getElementById('result-image').src = generatedOutputs.visualizer + '?t=' + new Date().getTime();
+        document.getElementById('image-container').classList.remove('hidden');
+    } else if (tabName === 'extractor' && generatedOutputs.extractor) {
+        loadExtractedImages();
+    }
 }
 
 // Update progress indicator
@@ -93,10 +107,12 @@ function loadExtractedImages() {
 
             imageGallery.innerHTML = galleryHTML;
             imageContainer.classList.remove('hidden');
+            generatedOutputs.extractor = true;
         })
         .catch(error => {
             console.log('No extracted images found:', error);
             imageGallery.innerHTML = '<div class="no-images">No images have been extracted yet. Run the image extraction first.</div>';
+            generatedOutputs.extractor = false;
         });
 }
 
@@ -175,6 +191,17 @@ window.addEventListener('DOMContentLoaded', function() {
 
     // Try to load any existing extracted images
     loadExtractedImages();
+
+    // Check if there's an existing visualization
+    fetch('/results/visualization_page_1.png')
+        .then(response => {
+            if (response.ok) {
+                generatedOutputs.visualizer = '/results/visualization_page_1.png';
+            }
+        })
+        .catch(() => {
+            // No existing visualization
+        });
 });
 
 // Check the environment
@@ -314,7 +341,8 @@ function pollTasks() {
 
                         // Show image if available for visualizer
                         if (taskInfo.type === 'visualizer' && data.image_file) {
-                            document.getElementById('result-image').src = '/' + data.image_file + '?t=' + new Date().getTime();
+                            generatedOutputs.visualizer = '/' + data.image_file;
+                            document.getElementById('result-image').src = generatedOutputs.visualizer + '?t=' + new Date().getTime();
                             document.getElementById('image-container').classList.remove('hidden');
                         }
 
@@ -394,14 +422,14 @@ function runScript(script) {
     // Clear previous output
     document.getElementById('output').classList.add('hidden');
 
-    // Hide previous image if not running visualizer
-    if (script !== 'visualizer') {
+    // Don't hide content when switching between tabs
+    // Only hide when running a new analysis on the same tab
+    if (script === 'analyzer') {
+        // Reset everything when running analyzer
         document.getElementById('image-container').classList.add('hidden');
-    }
-
-    // Hide extracted images if not running extractor
-    if (script !== 'extractor') {
         document.getElementById('extracted-images-container').classList.add('hidden');
+        generatedOutputs.visualizer = null;
+        generatedOutputs.extractor = false;
     }
 
     // Determine endpoint
