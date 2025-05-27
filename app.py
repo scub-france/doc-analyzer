@@ -5,6 +5,9 @@ import time
 import threading
 import logging
 from pathlib import Path
+import sys
+import uuid
+import pdf2image
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
@@ -18,6 +21,14 @@ app = Flask(__name__,
 
 # Dictionary to store background task results
 task_results = {}
+
+# Import batch processor if available
+try:
+    from batch_processor import start_batch_processing, get_batch_processor, cleanup_old_batches
+    batch_processing_available = True
+except ImportError:
+    logger.warning("batch_processor.py not found. Batch processing features will be disabled.")
+    batch_processing_available = False
 
 # Ensure results folder exists
 def ensure_results_folder():
@@ -44,6 +55,11 @@ def ensure_frontend_folders():
 def index():
     return send_file('frontend/index.html')
 
+@app.route('/batch')
+def batch_interface():
+    """Serve the batch processing interface"""
+    return send_file('frontend/batch.html')
+
 @app.route('/static/<path:filename>')
 def serve_static(filename):
     return send_file(os.path.join('frontend/static', filename))
@@ -58,6 +74,46 @@ def pdf_files():
     except Exception as e:
         logger.error(f"Error listing PDF files: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/pdf-info/<path:pdf_file>')
+def pdf_info(pdf_file):
+    """Get information about a PDF file (page count, etc.)"""
+    try:
+        if not os.path.exists(pdf_file):
+            return jsonify({'error': f'PDF file not found: {pdf_file}'}), 404
+
+        # Get page count using pdf2image
+        try:
+            from pdf2image.pdf2image import pdfinfo_from_path
+            info = pdfinfo_from_path(pdf_file)
+            page_count = info["Pages"]
+        except Exception as e:
+            # Fallback method
+            logger.warning(f"pdfinfo failed, using fallback: {e}")
+            images = pdf2image.convert_from_path(pdf_file, dpi=72, first_page=1, last_page=1)
+            page_count = 1  # At least one page if we got here
+
+            # Try to get actual count by checking last pages
+            for i in range(2, 1000):  # Reasonable upper limit
+                try:
+                    images = pdf2image.convert_from_path(pdf_file, dpi=72, first_page=i, last_page=i)
+                    if not images:
+                        page_count = i - 1
+                        break
+                    page_count = i
+                except:
+                    page_count = i - 1
+                    break
+
+        return jsonify({
+            'pageCount': page_count,
+            'filename': os.path.basename(pdf_file),
+            'size': os.path.getsize(pdf_file)
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting PDF info: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 def run_command(task_id, command):
     """Run a command in a background thread and store result"""
@@ -383,7 +439,8 @@ def check_environment():
             'pdf_files': pdf_files,
             'results_dir_exists': results_dir_exists,
             'results_dir_writable': results_writable,
-            'python_version': python_version
+            'python_version': python_version,
+            'batch_processing_available': batch_processing_available
         })
     except Exception as e:
         import traceback
@@ -440,8 +497,303 @@ def run_manual_command():
         logger.error(f"Error running manual command: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+# Batch processing endpoints
+@app.route('/run-batch-processor', methods=['POST'])
+def run_batch_processor():
+    """Start a new batch processing job"""
+    if not batch_processing_available:
+        return jsonify({'success': False, 'error': 'Batch processing not available'}), 503
+
+    try:
+        pdf_file = request.form.get('pdf_file')
+        start_page = int(request.form.get('start_page', 1))
+        end_page = int(request.form.get('end_page', 1))
+
+        if not pdf_file:
+            return jsonify({'success': False, 'error': 'PDF file not specified'}), 400
+
+        if not os.path.exists(pdf_file):
+            return jsonify({'success': False, 'error': f'PDF file not found: {pdf_file}'}), 404
+
+        # Processing options
+        options = {
+            'adjust': request.form.get('adjust') == 'true',
+            'parallel': request.form.get('parallel') == 'true',
+            'generate_report': request.form.get('generate_report') == 'true'
+        }
+
+        # Generate batch ID
+        batch_id = str(uuid.uuid4())[:8]
+
+        # Start batch processing
+        if start_batch_processing(batch_id, pdf_file, start_page, end_page, options):
+            logger.info(f"Started batch processing with ID: {batch_id}")
+            return jsonify({
+                'success': True,
+                'batch_id': batch_id,
+                'message': f'Batch processing started for {end_page - start_page + 1} pages'
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Failed to start batch processing'}), 500
+
+    except Exception as e:
+        logger.error(f"Error starting batch processor: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/batch-status/<batch_id>')
+def batch_status(batch_id):
+    """Get the status of a batch processing job"""
+    if not batch_processing_available:
+        return jsonify({'error': 'Batch processing not available'}), 503
+
+    try:
+        processor = get_batch_processor(batch_id)
+
+        if not processor:
+            return jsonify({'error': 'Batch not found'}), 404
+
+        state = processor.get_state()
+
+        # Only return recent logs (last 20)
+        state['logs'] = state['logs'][-20:]
+
+        return jsonify(state)
+
+    except Exception as e:
+        logger.error(f"Error getting batch status: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/pause-batch/<batch_id>', methods=['POST'])
+def pause_batch(batch_id):
+    """Pause a batch processing job"""
+    if not batch_processing_available:
+        return jsonify({'error': 'Batch processing not available'}), 503
+
+    try:
+        processor = get_batch_processor(batch_id)
+
+        if not processor:
+            return jsonify({'error': 'Batch not found'}), 404
+
+        processor.pause()
+        return jsonify({'success': True})
+
+    except Exception as e:
+        logger.error(f"Error pausing batch: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/resume-batch/<batch_id>', methods=['POST'])
+def resume_batch(batch_id):
+    """Resume a paused batch processing job"""
+    if not batch_processing_available:
+        return jsonify({'error': 'Batch processing not available'}), 503
+
+    try:
+        processor = get_batch_processor(batch_id)
+
+        if not processor:
+            return jsonify({'error': 'Batch not found'}), 404
+
+        processor.resume()
+        return jsonify({'success': True})
+
+    except Exception as e:
+        logger.error(f"Error resuming batch: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/cancel-batch/<batch_id>', methods=['POST'])
+def cancel_batch(batch_id):
+    """Cancel a batch processing job"""
+    if not batch_processing_available:
+        return jsonify({'error': 'Batch processing not available'}), 503
+
+    try:
+        processor = get_batch_processor(batch_id)
+
+        if not processor:
+            return jsonify({'error': 'Batch not found'}), 404
+
+        processor.cancel()
+        return jsonify({'success': True})
+
+    except Exception as e:
+        logger.error(f"Error cancelling batch: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/retry-page', methods=['POST'])
+def retry_page():
+    """Retry processing a single failed page"""
+    if not batch_processing_available:
+        return jsonify({'success': False, 'error': 'Batch processing not available'}), 503
+
+    try:
+        pdf_file = request.form.get('pdf_file')
+        page_num = int(request.form.get('page_num'))
+        adjust = request.form.get('adjust') == 'true'
+
+        if not pdf_file or not page_num:
+            return jsonify({'success': False, 'error': 'Missing parameters'}), 400
+
+        # Create a single-page batch for retry
+        batch_id = f"retry_{uuid.uuid4().hex[:8]}"
+        options = {'adjust': adjust, 'parallel': False, 'generate_report': False}
+
+        if start_batch_processing(batch_id, pdf_file, page_num, page_num, options):
+            # Wait for completion (since it's just one page)
+            processor = get_batch_processor(batch_id)
+            timeout = 60  # 60 seconds timeout
+            start_time = time.time()
+
+            while not processor.state['completed'] and (time.time() - start_time) < timeout:
+                time.sleep(0.5)
+
+            if processor.state['results']['successful'] > 0:
+                return jsonify({'success': True})
+            else:
+                return jsonify({'success': False, 'error': 'Page processing failed'})
+        else:
+            return jsonify({'success': False, 'error': 'Failed to start retry'}), 500
+
+    except Exception as e:
+        logger.error(f"Error retrying page: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/download-batch-results/<batch_id>')
+def download_batch_results(batch_id):
+    """Download all batch results as a ZIP file"""
+    if not batch_processing_available:
+        return jsonify({'error': 'Batch processing not available'}), 503
+
+    try:
+        processor = get_batch_processor(batch_id)
+
+        if not processor:
+            return jsonify({'error': 'Batch not found'}), 404
+
+        # Create ZIP archive
+        zip_path = processor.create_zip_archive()
+
+        if zip_path and os.path.exists(zip_path):
+            return send_file(
+                zip_path,
+                mimetype='application/zip',
+                as_attachment=True,
+                download_name=f'batch_results_{batch_id}.zip'
+            )
+        else:
+            return jsonify({'error': 'Failed to create archive'}), 500
+
+    except Exception as e:
+        logger.error(f"Error downloading batch results: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/batch-report/<batch_id>')
+def batch_report(batch_id):
+    """View the batch processing report"""
+    if not batch_processing_available:
+        return jsonify({'error': 'Batch processing not available'}), 503
+
+    try:
+        processor = get_batch_processor(batch_id)
+
+        if not processor:
+            return jsonify({'error': 'Batch not found'}), 404
+
+        report_path = processor.results_dir / "report.html"
+
+        if report_path.exists():
+            # Read and modify the HTML to fix image paths
+            with open(report_path, 'r') as f:
+                html_content = f.read()
+
+            # Replace relative image paths with absolute Flask routes
+            html_content = html_content.replace(
+                'src="visualization_page_',
+                f'src="/batch-report-image/{batch_id}/visualization_page_'
+            )
+            html_content = html_content.replace(
+                'href="visualization_page_',
+                f'href="/batch-report-image/{batch_id}/visualization_page_'
+            )
+
+            return html_content
+        else:
+            return jsonify({'error': 'Report not found'}), 404
+
+    except Exception as e:
+        logger.error(f"Error viewing batch report: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/batch-report-image/<batch_id>/<path:filename>')
+def batch_report_image(batch_id, filename):
+    """Serve images from batch report directory"""
+    if not batch_processing_available:
+        return jsonify({'error': 'Batch processing not available'}), 503
+
+    try:
+        processor = get_batch_processor(batch_id)
+
+        if not processor:
+            return jsonify({'error': 'Batch not found'}), 404
+
+        image_path = processor.results_dir / filename
+
+        if image_path.exists() and image_path.is_file():
+            return send_file(image_path)
+        else:
+            return jsonify({'error': f'Image not found: {filename}'}), 404
+
+    except Exception as e:
+        logger.error(f"Error serving batch report image: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/open-results-folder', methods=['POST'])
+def open_results_folder():
+    """Open the results folder in the system file explorer"""
+    try:
+        results_path = os.path.abspath("results")
+
+        if sys.platform == 'darwin':  # macOS
+            subprocess.run(['open', results_path])
+        elif sys.platform == 'win32':  # Windows
+            os.startfile(results_path)
+        else:  # Linux
+            subprocess.run(['xdg-open', results_path])
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        logger.error(f"Error opening results folder: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# Cleanup task for batch processors
+def cleanup_task():
+    """Periodic cleanup of old batch processors"""
+    if not batch_processing_available:
+        return
+
+    while True:
+        time.sleep(3600)  # Run every hour
+        try:
+            cleanup_old_batches(24)  # Clean up batches older than 24 hours
+        except Exception as e:
+            logger.error(f"Error in cleanup task: {str(e)}")
+
+# Start cleanup thread when app starts (only if batch processing is available)
+if batch_processing_available:
+    cleanup_thread = threading.Thread(target=cleanup_task)
+    cleanup_thread.daemon = True
+    cleanup_thread.start()
+
 if __name__ == '__main__':
     # Ensure folders exist
     ensure_results_folder()
     ensure_frontend_folders()
+
+    # Check environment
+    if not batch_processing_available:
+        logger.warning("batch_processor.py not found. Batch processing features will be disabled.")
+    else:
+        logger.info("Batch processing features enabled.")
+
     app.run(debug=True, host='127.0.0.1', port=5000)

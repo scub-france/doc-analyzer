@@ -2,3 +2,7 @@
 document_output
 results
 handbook.pdf
+ariston.pdf
+.DS_Store
+__pycache__/
+perplexity.pdf

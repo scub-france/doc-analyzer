@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DocTags Batch Processor</title>
+  <link rel="stylesheet" href="static/styles.css">
+  <link rel="stylesheet" href="static/batch-styles.css">
+</head>
+<body>
+<div class="container">
+  <h1>DocTags Batch Processor</h1>
+
+  <!-- Back to Single Page Processor -->
+  <div class="nav-link">
+    <a href="/">← Back to Single Page Processor</a>
+  </div>
+
+  <!-- Settings Panel -->
+  <div class="settings-panel">
+    <h3>Batch Processing Configuration</h3>
+
+    <!-- PDF Selection -->
+    <div class="batch-settings-grid">
+      <div class="form-group">
+        <label for="batch_pdf_file">PDF Document</label>
+        <select id="batch_pdf_file" name="batch_pdf_file">
+          <option value="">Select a PDF file...</option>
+        </select>
+        <div id="batch-pdf-info" class="pdf-info hidden">
+          <span class="info-label">Total pages:</span>
+          <span id="total-pages">-</span>
+        </div>
+      </div>
+
+      <!-- Page Range Selection -->
+      <div class="form-group">
+        <label>Page Range</label>
+        <div class="page-range-controls">
+          <label class="radio-label">
+            <input type="radio" name="page_range" value="all" checked>
+            All pages
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="page_range" value="range">
+            Custom range
+          </label>
+        </div>
+        <div id="custom-range" class="custom-range hidden">
+          <input type="number" id="start_page" min="1" placeholder="Start">
+          <span>to</span>
+          <input type="number" id="end_page" min="1" placeholder="End">
+        </div>
+      </div>
+
+      <!-- Processing Options -->
+      <div class="form-group">
+        <label>Processing Options</label>
+        <div class="processing-options">
+          <label>
+            <input type="checkbox" id="batch_adjust" checked>
+            Auto-adjust coordinates
+          </label>
+          <label>
+            <input type="checkbox" id="parallel_processing" checked>
+            Parallel processing
+          </label>
+          <label>
+            <input type="checkbox" id="generate_report" checked>
+            Generate summary report
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Batch Progress Overview -->
+  <div class="batch-progress-panel hidden" id="batch-progress-panel">
+    <h3>Processing Progress</h3>
+
+    <!-- Overall Progress -->
+    <div class="overall-progress">
+      <div class="progress-header">
+        <span>Overall Progress</span>
+        <span id="overall-percentage">0%</span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill" id="overall-progress-fill"></div>
+      </div>
+      <div class="progress-stats">
+        <span id="pages-completed">0</span> / <span id="pages-total">0</span> pages completed
+        <span class="separator">•</span>
+        <span>Elapsed: <span id="elapsed-time">00:00</span></span>
+        <span class="separator">•</span>
+        <span>ETA: <span id="eta-time">--:--</span></span>
+      </div>
+    </div>
+
+    <!-- Stage Progress -->
+    <div class="stage-progress">
+      <div class="stage-item">
+        <div class="stage-header">
+          <span class="stage-icon">📄</span>
+          <span class="stage-name">Analysis</span>
+          <span class="stage-percentage" id="analysis-percentage">0%</span>
+        </div>
+        <div class="progress-bar small">
+          <div class="progress-fill analysis" id="analysis-progress"></div>
+        </div>
+      </div>
+
+      <div class="stage-item">
+        <div class="stage-header">
+          <span class="stage-icon">🎨</span>
+          <span class="stage-name">Visualization</span>
+          <span class="stage-percentage" id="visualization-percentage">0%</span>
+        </div>
+        <div class="progress-bar small">
+          <div class="progress-fill visualization" id="visualization-progress"></div>
+        </div>
+      </div>
+
+      <div class="stage-item">
+        <div class="stage-header">
+          <span class="stage-icon">🖼️</span>
+          <span class="stage-name">Extraction</span>
+          <span class="stage-percentage" id="extraction-percentage">0%</span>
+        </div>
+        <div class="progress-bar small">
+          <div class="progress-fill extraction" id="extraction-progress"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Control Buttons -->
+  <div class="batch-controls">
+    <button id="start-batch-btn" class="primary-btn" onclick="startBatchProcessing()">
+      Start Batch Processing
+    </button>
+    <button id="pause-batch-btn" class="secondary-btn hidden" onclick="pauseBatchProcessing()">
+      Pause
+    </button>
+    <button id="resume-batch-btn" class="secondary-btn hidden" onclick="resumeBatchProcessing()">
+      Resume
+    </button>
+    <button id="cancel-batch-btn" class="danger-btn hidden" onclick="cancelBatchProcessing()">
+      Cancel
+    </button>
+  </div>
+
+  <!-- Page Status Grid -->
+  <div class="page-status-grid hidden" id="page-status-grid">
+    <h3>Page Processing Status</h3>
+    <div class="page-grid" id="page-grid">
+      <!-- Page status items will be dynamically added here -->
+    </div>
+  </div>
+
+  <!-- Results Section -->
+  <div class="batch-results hidden" id="batch-results">
+    <h3>Batch Processing Results</h3>
+
+    <!-- Summary Statistics -->
+    <div class="results-summary">
+      <div class="stat-card">
+        <div class="stat-value" id="stat-success">0</div>
+        <div class="stat-label">Successful</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-failed">0</div>
+        <div class="stat-label">Failed</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-duration">00:00</div>
+        <div class="stat-label">Total Time</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-images">0</div>
+        <div class="stat-label">Images Extracted</div>
+      </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="results-actions">
+      <button class="action-btn" onclick="downloadResults()">
+        📥 Download All Results
+      </button>
+      <button class="action-btn" onclick="viewReport()">
+        📊 View Detailed Report
+      </button>
+      <button class="action-btn" onclick="openResultsFolder()">
+        📁 Open Results Folder
+      </button>
+    </div>
+
+    <!-- Failed Pages (if any) -->
+    <div class="failed-pages hidden" id="failed-pages">
+      <h4>Failed Pages</h4>
+      <div class="failed-list" id="failed-list">
+        <!-- Failed page items will be listed here -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Console Output -->
+  <div class="console-output hidden" id="console-output">
+    <div class="console-header">
+      <h4>Processing Log</h4>
+      <button class="console-btn" onclick="clearConsole()">Clear</button>
+      <button class="console-btn" onclick="toggleAutoScroll()">
+        <span id="autoscroll-status">Auto-scroll: ON</span>
+      </button>
+    </div>
+    <div class="console-content" id="console-content">
+      <!-- Log messages will appear here -->
+    </div>
+  </div>
+
+  <!-- Environment Check -->
+  <div id="batch-environment-check" class="hidden">
+    <h3>System Environment</h3>
+    <div id="batch-env-details"></div>
+  </div>
+</div>
+
+<!-- Image Preview Modal -->
+<div id="batch-image-modal" class="image-modal">
+  <div class="modal-content">
+    <span class="modal-close" onclick="closeBatchImageModal()">&times;</span>
+    <div class="modal-tabs">
+      <button class="modal-tab active" onclick="switchModalTab('visualization')">Visualization</button>
+      <button class="modal-tab" onclick="switchModalTab('extracted')">Extracted Images</button>
+    </div>
+    <div id="modal-visualization-content" class="modal-tab-content active">
+      <img id="modal-visualization-image" src="" alt="Page Visualization">
+    </div>
+    <div id="modal-extracted-content" class="modal-tab-content">
+      <div id="modal-extracted-gallery" class="modal-gallery">
+        <!-- Extracted images will be shown here -->
+      </div>
+    </div>
+    <div class="modal-info">
+      <p id="modal-page-info"></p>
+    </div>
+  </div>
+</div>
+
+<script src="static/batch-processor.js"></script>
+</body>
+</html>

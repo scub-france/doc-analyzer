@@ -1,471 +1,645 @@
 #!/usr/bin/env python3
 """
-DocTags Batch Processor - Process multiple pages from a PDF in sequence.
-
-Usage:
-    python batch_processor.py --pdf document.pdf --start 1 --end 10 --adjust
+Batch Processor for DocTags
+Handles batch processing of PDF documents with parallel processing support
 """
 
-import argparse
-import subprocess
 import os
-import sys
-import time
 import json
+import time
+import threading
+import queue
+import logging
 from pathlib import Path
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import subprocess
+import shutil
+import zipfile
 
-def ensure_results_folder():
-    """Create the results folder if it doesn't exist."""
-    results_dir = Path("results")
-    if not results_dir.exists():
-        results_dir.mkdir()
-        print(f"Created results directory: {results_dir}")
-    return results_dir
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-def parse_arguments():
-    """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description='Batch process multiple PDF pages')
-    parser.add_argument('--pdf', '-p', type=str, required=True,
-                        help='Path to PDF file')
-    parser.add_argument('--start', type=int, default=1,
-                        help='Starting page number (default: 1)')
-    parser.add_argument('--end', type=int, default=None,
-                        help='Ending page number (default: last page)')
-    parser.add_argument('--pages', type=str, default=None,
-                        help='Comma-separated list of specific pages (e.g., "1,3,5-7,10")')
-    parser.add_argument('--adjust', action='store_true',
-                        help='Auto-adjust coordinates for visualizer and extractor')
-    parser.add_argument('--skip-analyzer', action='store_true',
-                        help='Skip analyzer step (use existing doctags)')
-    parser.add_argument('--skip-visualizer', action='store_true',
-                        help='Skip visualizer step')
-    parser.add_argument('--skip-extractor', action='store_true',
-                        help='Skip extractor step')
-    parser.add_argument('--output-dir', type=str, default='results',
-                        help='Output directory for all results')
-    parser.add_argument('--dpi', type=int, default=200,
-                        help='DPI for PDF rendering')
-    parser.add_argument('--max-pages', type=int, default=None,
-                        help='Maximum number of pages to process')
-    parser.add_argument('--verbose', '-v', action='store_true',
-                        help='Verbose output')
-    return parser.parse_args()
 
-def get_pdf_page_count(pdf_path):
-    """Get the number of pages in a PDF file."""
-    try:
-        from pdf2image.pdf2image import pdfinfo_from_path
-        info = pdfinfo_from_path(pdf_path)
-        return info["Pages"]
-    except Exception as e:
-        print(f"Warning: Could not determine page count: {e}")
-        return None
+class BatchProcessor:
+    def __init__(self, batch_id, pdf_file, start_page, end_page, options):
+        self.batch_id = batch_id
+        self.pdf_file = pdf_file
+        self.start_page = start_page
+        self.end_page = end_page
+        self.total_pages = end_page - start_page + 1
+        self.options = options
 
-def parse_page_list(pages_str):
-    """Parse a page list string like "1,3,5-7,10" into a list of page numbers."""
-    pages = []
-    parts = pages_str.split(',')
-
-    for part in parts:
-        part = part.strip()
-        if '-' in part:
-            # Range like "5-7"
-            try:
-                start, end = map(int, part.split('-'))
-                pages.extend(range(start, end + 1))
-            except ValueError:
-                print(f"Warning: Invalid page range '{part}'")
-        else:
-            # Single page
-            try:
-                pages.append(int(part))
-            except ValueError:
-                print(f"Warning: Invalid page number '{part}'")
-
-    # Remove duplicates and sort
-    return sorted(set(pages))
-
-def run_command(command, verbose=False):
-    """Run a command and return success status and output."""
-    if verbose:
-        print(f"Running: {command}")
-
-    try:
-        process = subprocess.Popen(
-            command,
-            shell=True,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            universal_newlines=True
-        )
-
-        # Send "n" to bypass any prompts
-        stdout, stderr = process.communicate(input="n\n", timeout=300)  # 5 minute timeout
-
-        if verbose and stdout:
-            print("Output:", stdout[:500], "..." if len(stdout) > 500 else "")
-
-        if process.returncode != 0:
-            print(f"Error: {stderr}")
-            return False, stdout, stderr
-
-        return True, stdout, stderr
-
-    except subprocess.TimeoutExpired:
-        print("Error: Command timed out")
-        return False, "", "Command timed out"
-    except Exception as e:
-        print(f"Error running command: {e}")
-        return False, "", str(e)
-
-def process_page(pdf_path, page_num, args, results_dir):
-    """Process a single page through all three steps."""
-    print(f"\n{'='*60}")
-    print(f"Processing page {page_num}")
-    print(f"{'='*60}")
-
-    page_results = {
-        'page': page_num,
-        'analyzer': {'success': False},
-        'visualizer': {'success': False},
-        'extractor': {'success': False},
-        'start_time': datetime.now().isoformat()
-    }
-
-    # Step 1: Analyzer
-    if not args.skip_analyzer:
-        print(f"\n[1/3] Running analyzer for page {page_num}...")
-
-        # Create page-specific output name
-        output_name = f"page_{page_num}"
-        analyzer_cmd = f"python analyzer.py --image {pdf_path} --page {page_num} --output {results_dir}/{output_name}.html --dpi {args.dpi}"
-
-        success, stdout, stderr = run_command(analyzer_cmd, args.verbose)
-
-        page_results['analyzer'] = {
-            'success': success,
-            'doctags_file': f"{results_dir}/{output_name}.doctags.txt" if success else None,
-            'error': stderr if not success else None
+        # State management
+        self.state = {
+            'status': 'initializing',
+            'processed': 0,
+            'total': self.total_pages,
+            'start_time': time.time(),
+            'completed': False,
+            'paused': False,
+            'cancelled': False,
+            'page_statuses': {},
+            'stages': {
+                'analysis': {'completed': 0, 'total': self.total_pages},
+                'visualization': {'completed': 0, 'total': self.total_pages},
+                'extraction': {'completed': 0, 'total': self.total_pages}
+            },
+            'results': {
+                'successful': 0,
+                'failed': 0,
+                'totalImages': 0,
+                'failedPages': []
+            },
+            'logs': []
         }
 
-        if success:
-            print(f"✓ Analyzer completed for page {page_num}")
-        else:
-            print(f"✗ Analyzer failed for page {page_num}")
-            if not args.skip_visualizer or not args.skip_extractor:
-                print(f"Skipping remaining steps for page {page_num} due to analyzer failure")
-                return page_results
-    else:
-        # Check if doctags file exists
-        doctags_file = f"{results_dir}/page_{page_num}.doctags.txt"
-        if os.path.exists(doctags_file):
-            page_results['analyzer'] = {
-                'success': True,
-                'doctags_file': doctags_file,
-                'skipped': True
-            }
-        else:
-            print(f"✗ No existing doctags file found for page {page_num}")
-            return page_results
+        # Initialize page statuses
+        for page in range(start_page, end_page + 1):
+            self.state['page_statuses'][str(page)] = 'pending'
 
-    # Step 2: Visualizer
-    if not args.skip_visualizer:
-        print(f"\n[2/3] Running visualizer for page {page_num}...")
+        # Threading
+        self.lock = threading.Lock()
+        self.pause_event = threading.Event()
+        self.pause_event.set()  # Start unpaused
 
-        doctags_file = page_results['analyzer']['doctags_file']
-        visualizer_cmd = f"python visualizer.py --doctags {doctags_file} --pdf {pdf_path} --page {page_num}"
+        # Create batch results directory
+        self.results_dir = Path("results") / f"batch_{batch_id}"
+        self.results_dir.mkdir(parents=True, exist_ok=True)
 
-        if args.adjust:
-            visualizer_cmd += " --adjust"
+        # Log file
+        self.log_file = self.results_dir / "batch_processing.log"
 
-        success, stdout, stderr = run_command(visualizer_cmd, args.verbose)
-
-        page_results['visualizer'] = {
-            'success': success,
-            'image_file': f"{results_dir}/visualization_page_{page_num}.png" if success else None,
-            'error': stderr if not success else None
+    def log_message(self, message, level='info'):
+        """Add a log message to the state"""
+        timestamp = datetime.now().isoformat()
+        log_entry = {
+            'timestamp': timestamp,
+            'level': level,
+            'message': message
         }
 
-        if success:
-            print(f"✓ Visualizer completed for page {page_num}")
-        else:
-            print(f"✗ Visualizer failed for page {page_num}")
+        with self.lock:
+            self.state['logs'].append(log_entry)
+            # Keep only last 100 log entries in memory
+            if len(self.state['logs']) > 100:
+                self.state['logs'] = self.state['logs'][-100:]
 
-    # Step 3: Picture Extractor
-    if not args.skip_extractor:
-        print(f"\n[3/3] Running picture extractor for page {page_num}...")
+        # Also write to log file
+        with open(self.log_file, 'a') as f:
+            f.write(f"[{timestamp}] [{level.upper()}] {message}\n")
 
-        doctags_file = page_results['analyzer']['doctags_file']
-        pictures_dir = f"{results_dir}/pictures_page_{page_num}"
-        extractor_cmd = f"python picture_extractor.py --doctags {doctags_file} --pdf {pdf_path} --page {page_num} --output {pictures_dir}"
+        logger.info(f"[{level}] {message}")
 
-        if args.adjust:
-            extractor_cmd += " --adjust"
+    def update_page_status(self, page_num, status):
+        """Update the status of a specific page"""
+        with self.lock:
+            self.state['page_statuses'][str(page_num)] = status
 
-        success, stdout, stderr = run_command(extractor_cmd, args.verbose)
+    def update_stage_progress(self, stage, increment=1):
+        """Update progress for a specific stage"""
+        with self.lock:
+            self.state['stages'][stage]['completed'] += increment
 
-        page_results['extractor'] = {
-            'success': success,
-            'output_dir': pictures_dir if success else None,
-            'error': stderr if not success else None
-        }
+    def process_page(self, page_num):
+        """Process a single page through all stages"""
+        try:
+            # Check if paused or cancelled
+            self.pause_event.wait()
+            if self.state['cancelled']:
+                return False
 
-        if success:
-            print(f"✓ Picture extractor completed for page {page_num}")
-        else:
-            print(f"✗ Picture extractor failed for page {page_num}")
+            self.log_message(f"Starting processing for page {page_num}")
+            self.update_page_status(page_num, 'processing')
 
-    page_results['end_time'] = datetime.now().isoformat()
-    return page_results
+            # Stage 1: Analysis
+            if not self.run_analyzer(page_num):
+                raise Exception("Analyzer failed")
+            self.update_stage_progress('analysis')
 
-def create_batch_report(results, pdf_path, output_dir):
-    """Create an HTML report summarizing the batch processing results."""
-    report_path = Path(output_dir) / "batch_report.html"
+            # Check if paused or cancelled
+            self.pause_event.wait()
+            if self.state['cancelled']:
+                return False
 
-    total_pages = len(results)
-    successful_pages = sum(1 for r in results if all(
-        r.get(step, {}).get('success', False) or r.get(step, {}).get('skipped', False)
-        for step in ['analyzer', 'visualizer', 'extractor']
-    ))
+            # Stage 2: Visualization
+            if not self.run_visualizer(page_num):
+                raise Exception("Visualizer failed")
+            self.update_stage_progress('visualization')
 
-    html = f"""<!DOCTYPE html>
+            # Check if paused or cancelled
+            self.pause_event.wait()
+            if self.state['cancelled']:
+                return False
+
+            # Stage 3: Extraction
+            image_count = self.run_extractor(page_num)
+            self.update_stage_progress('extraction')
+
+            # Update results
+            with self.lock:
+                self.state['results']['successful'] += 1
+                self.state['results']['totalImages'] += image_count
+                self.state['processed'] += 1
+
+            self.update_page_status(page_num, 'completed')
+            self.log_message(f"Successfully processed page {page_num}", 'success')
+
+            return True
+
+        except Exception as e:
+            # Handle failure
+            with self.lock:
+                self.state['results']['failed'] += 1
+                self.state['results']['failedPages'].append({
+                    'pageNum': page_num,
+                    'reason': str(e)
+                })
+                self.state['processed'] += 1
+
+            self.update_page_status(page_num, 'failed')
+            self.log_message(f"Failed to process page {page_num}: {str(e)}", 'error')
+
+            return False
+
+    def run_analyzer(self, page_num):
+        """Run the analyzer for a specific page"""
+        try:
+            # Use standard results directory for analyzer output
+            output_base = Path("results") / f"output"
+
+            command = [
+                "python", "analyzer.py",
+                "--image", self.pdf_file,
+                "--page", str(page_num),
+                "--output", str(output_base),
+                "--start-page", str(page_num),
+                "--end-page", str(page_num)
+            ]
+
+            self.log_message(f"Running analyzer for page {page_num}")
+
+            # Run the command
+            process = subprocess.Popen(
+                command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+
+            # Send "n" to bypass prompts
+            stdout, stderr = process.communicate(input="n\n", timeout=300)  # 5 minute timeout
+
+            if process.returncode != 0:
+                raise Exception(f"Analyzer failed: {stderr}")
+
+            # Copy doctags to batch directory for archiving
+            doctags_src = Path("results") / "output.doctags.txt"
+            doctags_dst = self.results_dir / f"page_{page_num}.doctags.txt"
+            if doctags_src.exists():
+                shutil.copy2(doctags_src, doctags_dst)
+                self.log_message(f"DocTags saved for page {page_num}")
+            else:
+                raise Exception("DocTags file not generated")
+
+            return True
+
+        except Exception as e:
+            self.log_message(f"Analyzer error for page {page_num}: {str(e)}", 'error')
+            return False
+
+    def run_visualizer(self, page_num):
+        """Run the visualizer for a specific page"""
+        try:
+            # The visualizer expects doctags in the standard location
+            doctags_path = Path("results") / "output.doctags.txt"
+
+            # First, ensure we have the right doctags file for this page
+            page_doctags = self.results_dir / f"page_{page_num}.doctags.txt"
+            if page_doctags.exists():
+                shutil.copy2(page_doctags, doctags_path)
+
+            command = [
+                "python", "visualizer.py",
+                "--doctags", str(doctags_path),
+                "--pdf", self.pdf_file,
+                "--page", str(page_num)
+            ]
+
+            if self.options.get('adjust', True):
+                command.append("--adjust")
+
+            self.log_message(f"Running visualizer for page {page_num}")
+
+            # Run the command
+            process = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+
+            if process.returncode != 0:
+                raise Exception(f"Visualizer failed: {process.stderr}")
+
+            # The visualizer should have created the file in results/
+            viz_src = Path("results") / f"visualization_page_{page_num}.png"
+            viz_dst = self.results_dir / f"visualization_page_{page_num}.png"
+
+            if viz_src.exists():
+                shutil.copy2(viz_src, viz_dst)
+                self.log_message(f"Visualization saved for page {page_num}")
+            else:
+                self.log_message(f"Warning: Visualization file not found for page {page_num}", 'warning')
+
+            return True
+
+        except Exception as e:
+            self.log_message(f"Visualizer error for page {page_num}: {str(e)}", 'error')
+            return False
+
+    def run_extractor(self, page_num):
+        """Run the picture extractor for a specific page"""
+        try:
+            # Ensure we have the right doctags file for this page
+            doctags_path = Path("results") / "output.doctags.txt"
+            page_doctags = self.results_dir / f"page_{page_num}.doctags.txt"
+            if page_doctags.exists():
+                shutil.copy2(page_doctags, doctags_path)
+
+            # Let extractor create files in its default location first
+            command = [
+                "python", "picture_extractor.py",
+                "--doctags", str(doctags_path),
+                "--pdf", self.pdf_file,
+                "--page", str(page_num)
+            ]
+
+            if self.options.get('adjust', True):
+                command.append("--adjust")
+
+            self.log_message(f"Running extractor for page {page_num}")
+
+            # Run the command
+            process = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+
+            if process.returncode != 0:
+                self.log_message(f"Extractor warning for page {page_num}: {process.stderr}", 'warning')
+
+            # Count and copy extracted images
+            image_count = 0
+            pics_src = Path("results") / "pictures"
+            pics_dst = self.results_dir / f"pictures_page_{page_num}"
+
+            if pics_src.exists():
+                # Copy to batch directory
+                if pics_dst.exists():
+                    shutil.rmtree(pics_dst)
+                shutil.copytree(pics_src, pics_dst)
+
+                # Also copy to page-specific location for web interface
+                pics_web = Path("results") / f"pictures_page_{page_num}"
+                if pics_web.exists():
+                    shutil.rmtree(pics_web)
+                shutil.copytree(pics_src, pics_web)
+
+                # Count PNG files
+                image_count = len(list(pics_dst.glob("*.png")))
+                self.log_message(f"Extracted {image_count} images from page {page_num}")
+            else:
+                self.log_message(f"No images extracted from page {page_num}", 'info')
+
+            return image_count
+
+        except Exception as e:
+            self.log_message(f"Extractor error for page {page_num}: {str(e)}", 'error')
+            return 0
+
+    def run(self):
+        """Main batch processing loop"""
+        try:
+            self.state['status'] = 'processing'
+            self.log_message(f"Starting batch processing for {self.pdf_file} (pages {self.start_page}-{self.end_page})")
+
+            # Determine number of workers
+            max_workers = 4 if self.options.get('parallel', True) else 1
+
+            # Create page list
+            pages = list(range(self.start_page, self.end_page + 1))
+
+            # Process pages
+            if max_workers > 1:
+                # Parallel processing
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = {executor.submit(self.process_page, page): page for page in pages}
+
+                    for future in as_completed(futures):
+                        if self.state['cancelled']:
+                            executor.shutdown(wait=False)
+                            break
+
+                        page = futures[future]
+                        try:
+                            future.result()
+                        except Exception as e:
+                            self.log_message(f"Unexpected error processing page {page}: {str(e)}", 'error')
+            else:
+                # Sequential processing
+                for page in pages:
+                    if self.state['cancelled']:
+                        break
+                    self.process_page(page)
+
+            # Generate report if requested
+            if self.options.get('generate_report', True) and not self.state['cancelled']:
+                self.generate_report()
+
+            # Update final state
+            with self.lock:
+                self.state['completed'] = True
+                self.state['status'] = 'cancelled' if self.state['cancelled'] else 'completed'
+
+            duration = time.time() - self.state['start_time']
+            self.log_message(f"Batch processing completed in {self.format_duration(duration)}", 'success')
+
+        except Exception as e:
+            self.log_message(f"Critical error in batch processing: {str(e)}", 'error')
+            with self.lock:
+                self.state['completed'] = True
+                self.state['status'] = 'error'
+
+    def generate_report(self):
+        """Generate a comprehensive HTML report"""
+        try:
+            self.log_message("Generating batch processing report")
+
+            report_path = self.results_dir / "report.html"
+
+            # Calculate statistics
+            duration = time.time() - self.state['start_time']
+            success_rate = (self.state['results']['successful'] / self.total_pages * 100) if self.total_pages > 0 else 0
+
+            html = f"""<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Batch Processing Report - {os.path.basename(pdf_path)}</title>
+    <title>Batch Processing Report - {self.pdf_file}</title>
     <style>
-        body {{ font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }}
-        .container {{ max-width: 1200px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
-        h1 {{ color: #333; border-bottom: 2px solid #4CAF50; padding-bottom: 10px; }}
-        .summary {{ background-color: #f0f0f0; padding: 15px; border-radius: 5px; margin: 20px 0; }}
-        .summary-stat {{ display: inline-block; margin-right: 30px; }}
-        .summary-stat strong {{ color: #4CAF50; font-size: 24px; }}
-        table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
-        th, td {{ padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }}
-        th {{ background-color: #4CAF50; color: white; }}
-        tr:hover {{ background-color: #f5f5f5; }}
-        .success {{ color: #4CAF50; font-weight: bold; }}
-        .failed {{ color: #f44336; font-weight: bold; }}
-        .skipped {{ color: #777; font-style: italic; }}
-        .page-link {{ text-decoration: none; color: #2196F3; }}
-        .page-link:hover {{ text-decoration: underline; }}
-        .timestamp {{ color: #777; font-size: 0.9em; }}
+        body {{ font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }}
+        .container {{ max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+        h1 {{ color: #2c3e50; margin-bottom: 10px; }}
+        .subtitle {{ color: #7f8c8d; margin-bottom: 30px; }}
+        .stats {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin: 30px 0; }}
+        .stat-box {{ background: #ecf0f1; padding: 20px; border-radius: 8px; text-align: center; }}
+        .stat-value {{ font-size: 2.5em; font-weight: bold; color: #2c3e50; }}
+        .stat-label {{ color: #7f8c8d; margin-top: 5px; }}
+        .success {{ color: #27ae60; }}
+        .error {{ color: #e74c3c; }}
+        table {{ width: 100%; border-collapse: collapse; margin: 20px 0; }}
+        th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #ecf0f1; }}
+        th {{ background: #34495e; color: white; }}
+        tr:hover {{ background: #f8f9fa; }}
+        .page-preview {{ display: inline-block; margin: 10px; text-align: center; }}
+        .page-preview img {{ max-width: 200px; max-height: 200px; border: 1px solid #ddd; }}
+        .failed-section {{ background: #fee; padding: 20px; border-radius: 8px; margin: 20px 0; }}
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Batch Processing Report</h1>
-        <p class="timestamp">Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+        <p class="subtitle">Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
         
-        <div class="summary">
-            <h2>Summary</h2>
-            <div class="summary-stat">
-                <strong>{total_pages}</strong><br>
-                Total Pages
+        <div class="stats">
+            <div class="stat-box">
+                <div class="stat-value">{self.total_pages}</div>
+                <div class="stat-label">Total Pages</div>
             </div>
-            <div class="summary-stat">
-                <strong>{successful_pages}</strong><br>
-                Successful
+            <div class="stat-box">
+                <div class="stat-value success">{self.state['results']['successful']}</div>
+                <div class="stat-label">Successful</div>
             </div>
-            <div class="summary-stat">
-                <strong>{total_pages - successful_pages}</strong><br>
-                Failed
+            <div class="stat-box">
+                <div class="stat-value error">{self.state['results']['failed']}</div>
+                <div class="stat-label">Failed</div>
             </div>
-            <div class="summary-stat">
-                <strong>{os.path.basename(pdf_path)}</strong><br>
-                PDF File
+            <div class="stat-box">
+                <div class="stat-value">{self.state['results']['totalImages']}</div>
+                <div class="stat-label">Images Extracted</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value">{self.format_duration(duration)}</div>
+                <div class="stat-label">Processing Time</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value">{success_rate:.1f}%</div>
+                <div class="stat-label">Success Rate</div>
             </div>
         </div>
         
-        <h2>Processing Results</h2>
+        <h2>Processing Details</h2>
         <table>
             <tr>
-                <th>Page</th>
-                <th>Analyzer</th>
-                <th>Visualizer</th>
-                <th>Extractor</th>
-                <th>Actions</th>
+                <th>Parameter</th>
+                <th>Value</th>
             </tr>
+            <tr>
+                <td>PDF File</td>
+                <td>{self.pdf_file}</td>
+            </tr>
+            <tr>
+                <td>Page Range</td>
+                <td>{self.start_page} - {self.end_page}</td>
+            </tr>
+            <tr>
+                <td>Batch ID</td>
+                <td>{self.batch_id}</td>
+            </tr>
+            <tr>
+                <td>Parallel Processing</td>
+                <td>{'Enabled' if self.options.get('parallel', True) else 'Disabled'}</td>
+            </tr>
+            <tr>
+                <td>Auto-adjust Coordinates</td>
+                <td>{'Enabled' if self.options.get('adjust', True) else 'Disabled'}</td>
+            </tr>
+        </table>
 """
 
-    for result in results:
-        page_num = result['page']
-
-        # Determine status for each step
-        analyzer_status = "✓ Success" if result['analyzer']['success'] else "✗ Failed"
-        if result['analyzer'].get('skipped'):
-            analyzer_status = "— Skipped"
-
-        visualizer_status = "✓ Success" if result.get('visualizer', {}).get('success') else "✗ Failed"
-        if 'visualizer' not in result:
-            visualizer_status = "— Skipped"
-
-        extractor_status = "✓ Success" if result.get('extractor', {}).get('success') else "✗ Failed"
-        if 'extractor' not in result:
-            extractor_status = "— Skipped"
-
-        # Build action links
-        actions = []
-        if result['analyzer']['success']:
-            doctags_file = result['analyzer'].get('doctags_file')
-            if doctags_file:
-                actions.append(f'<a href="{os.path.basename(doctags_file)}" class="page-link">DocTags</a>')
-
-        if result.get('visualizer', {}).get('success'):
-            viz_file = result['visualizer'].get('image_file')
-            if viz_file:
-                actions.append(f'<a href="{os.path.basename(viz_file)}" class="page-link">Visualization</a>')
-
-        if result.get('extractor', {}).get('success'):
-            extract_dir = result['extractor'].get('output_dir')
-            if extract_dir:
-                index_file = f"{os.path.basename(extract_dir)}/index.html"
-                actions.append(f'<a href="{index_file}" class="page-link">Extracted Images</a>')
-
-        # Determine row styling
-        analyzer_class = "success" if result['analyzer']['success'] else "failed"
-        if result['analyzer'].get('skipped'):
-            analyzer_class = "skipped"
-
-        visualizer_class = "success" if result.get('visualizer', {}).get('success') else "failed"
-        if 'visualizer' not in result:
-            visualizer_class = "skipped"
-
-        extractor_class = "success" if result.get('extractor', {}).get('success') else "failed"
-        if 'extractor' not in result:
-            extractor_class = "skipped"
-
-        html += f"""            <tr>
-                <td><strong>Page {page_num}</strong></td>
-                <td class="{analyzer_class}">{analyzer_status}</td>
-                <td class="{visualizer_class}">{visualizer_status}</td>
-                <td class="{extractor_class}">{extractor_status}</td>
-                <td>{' | '.join(actions) if actions else 'No outputs'}</td>
-            </tr>
+            # Add failed pages section if any
+            if self.state['results']['failedPages']:
+                html += """
+        <div class="failed-section">
+            <h2>Failed Pages</h2>
+            <table>
+                <tr>
+                    <th>Page Number</th>
+                    <th>Reason</th>
+                </tr>
+"""
+                for failed in self.state['results']['failedPages']:
+                    html += f"""
+                <tr>
+                    <td>{failed['pageNum']}</td>
+                    <td>{failed['reason']}</td>
+                </tr>
+"""
+                html += """
+            </table>
+        </div>
 """
 
-    html += """        </table>
+            # Add successful pages preview
+            html += """
+        <h2>Processed Pages</h2>
+        <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+"""
+
+            for page in range(self.start_page, self.end_page + 1):
+                if self.state['page_statuses'].get(str(page)) == 'completed':
+                    viz_path = f"visualization_page_{page}.png"
+                    html += f"""
+            <div class="page-preview">
+                <a href="{viz_path}" target="_blank">
+                    <img src="{viz_path}" alt="Page {page}">
+                </a>
+                <p>Page {page}</p>
+            </div>
+"""
+
+            html += """
+        </div>
     </div>
 </body>
 </html>
 """
 
-    with open(report_path, 'w', encoding='utf-8') as f:
-        f.write(html)
+            with open(report_path, 'w') as f:
+                f.write(html)
 
-    return report_path
+            self.log_message("Report generated successfully")
 
-def main():
-    # Parse arguments
-    args = parse_arguments()
+        except Exception as e:
+            self.log_message(f"Error generating report: {str(e)}", 'error')
 
-    # Check if PDF exists
-    if not os.path.exists(args.pdf):
-        print(f"Error: PDF file not found: {args.pdf}")
-        sys.exit(1)
+    def pause(self):
+        """Pause the batch processing"""
+        self.pause_event.clear()
+        self.state['paused'] = True
+        self.log_message("Batch processing paused")
 
-    # Create results directory
-    results_dir = ensure_results_folder()
-    if args.output_dir != 'results':
-        results_dir = Path(args.output_dir)
-        if not results_dir.exists():
-            results_dir.mkdir(parents=True)
-            print(f"Created output directory: {results_dir}")
+    def resume(self):
+        """Resume the batch processing"""
+        self.pause_event.set()
+        self.state['paused'] = False
+        self.log_message("Batch processing resumed")
 
-    # Determine which pages to process
-    pages_to_process = []
+    def cancel(self):
+        """Cancel the batch processing"""
+        self.state['cancelled'] = True
+        self.pause_event.set()  # Ensure not stuck on pause
+        self.log_message("Batch processing cancelled")
 
-    if args.pages:
-        # Specific pages provided
-        pages_to_process = parse_page_list(args.pages)
-        print(f"Processing specific pages: {pages_to_process}")
-    else:
-        # Range of pages
-        pdf_page_count = get_pdf_page_count(args.pdf)
+    def get_state(self):
+        """Get the current state with calculated fields"""
+        with self.lock:
+            state = self.state.copy()
 
-        if pdf_page_count:
-            print(f"PDF has {pdf_page_count} pages")
+            # Calculate ETA
+            if state['processed'] > 0 and not state['completed']:
+                elapsed = time.time() - state['start_time']
+                rate = state['processed'] / elapsed
+                remaining = state['total'] - state['processed']
+                eta = remaining / rate if rate > 0 else 0
+                state['eta'] = eta * 1000  # Convert to milliseconds
+            else:
+                state['eta'] = 0
 
-        start_page = args.start
-        end_page = args.end or pdf_page_count or 1
+            return state
 
-        if args.max_pages and (end_page - start_page + 1) > args.max_pages:
-            end_page = start_page + args.max_pages - 1
-            print(f"Limiting to {args.max_pages} pages")
+    def format_duration(self, seconds):
+        """Format duration in seconds to human readable format"""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
 
-        pages_to_process = list(range(start_page, end_page + 1))
-        print(f"Processing pages {start_page} to {end_page}")
+        if hours > 0:
+            return f"{hours}:{minutes:02d}:{secs:02d}"
+        else:
+            return f"{minutes}:{secs:02d}"
 
-    # Start batch processing
-    print(f"\nStarting batch processing of {len(pages_to_process)} pages")
-    print(f"PDF: {args.pdf}")
-    print(f"Output directory: {results_dir}")
+    def create_zip_archive(self):
+        """Create a ZIP archive of all results"""
+        try:
+            zip_path = self.results_dir / f"batch_results_{self.batch_id}.zip"
 
-    if args.skip_analyzer:
-        print("Note: Skipping analyzer step")
-    if args.skip_visualizer:
-        print("Note: Skipping visualizer step")
-    if args.skip_extractor:
-        print("Note: Skipping extractor step")
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                # Add all files in the results directory
+                for file_path in self.results_dir.rglob('*'):
+                    if file_path.is_file() and file_path != zip_path:
+                        arcname = file_path.relative_to(self.results_dir)
+                        zipf.write(file_path, arcname)
 
-    # Process each page
-    all_results = []
-    start_time = time.time()
+            self.log_message(f"Created ZIP archive: {zip_path}")
+            return zip_path
 
-    for i, page_num in enumerate(pages_to_process, 1):
-        print(f"\n[{i}/{len(pages_to_process)}] Processing page {page_num}")
+        except Exception as e:
+            self.log_message(f"Error creating ZIP archive: {str(e)}", 'error')
+            return None
 
-        page_result = process_page(args.pdf, page_num, args, results_dir)
-        all_results.append(page_result)
 
-        # Save intermediate results
-        with open(results_dir / "batch_results.json", 'w') as f:
-            json.dump(all_results, f, indent=2)
+# Global batch processors storage
+batch_processors = {}
+batch_lock = threading.Lock()
 
-    # Calculate processing time
-    end_time = time.time()
-    processing_time = end_time - start_time
 
-    # Create summary report
-    print(f"\n{'='*60}")
-    print("BATCH PROCESSING COMPLETE")
-    print(f"{'='*60}")
-    print(f"Total pages processed: {len(pages_to_process)}")
-    print(f"Total time: {processing_time:.1f} seconds")
-    print(f"Average time per page: {processing_time/len(pages_to_process):.1f} seconds")
+def start_batch_processing(batch_id, pdf_file, start_page, end_page, options):
+    """Start a new batch processing job"""
+    try:
+        processor = BatchProcessor(batch_id, pdf_file, start_page, end_page, options)
 
-    # Create HTML report
-    report_path = create_batch_report(all_results, args.pdf, results_dir)
-    print(f"\nBatch report created: {report_path}")
+        with batch_lock:
+            batch_processors[batch_id] = processor
 
-    # Summary statistics
-    successful_count = sum(1 for r in all_results if all(
-        r.get(step, {}).get('success', False) or r.get(step, {}).get('skipped', False)
-        for step in ['analyzer', 'visualizer', 'extractor'] if step in r
-    ))
+        # Start processing in a separate thread
+        thread = threading.Thread(target=processor.run)
+        thread.daemon = True
+        thread.start()
 
-    print(f"\nSuccess rate: {successful_count}/{len(pages_to_process)} pages ({successful_count/len(pages_to_process)*100:.1f}%)")
+        return True
 
-    # Print any errors
-    errors = []
-    for result in all_results:
-        page_num = result['page']
-        for step in ['analyzer', 'visualizer', 'extractor']:
-            if step in result and not result[step]['success'] and not result[step].get('skipped'):
-                error = result[step].get('error', 'Unknown error')
-                errors.append(f"Page {page_num} - {step}: {error}")
+    except Exception as e:
+        logger.error(f"Error starting batch processing: {str(e)}")
+        return False
 
-    if errors:
-        print("\nErrors encountered:")
-        for error in errors[:5]:  # Show first 5 errors
-            print(f"  - {error}")
-        if len(errors) > 5:
-            print(f"  ... and {len(errors) - 5} more errors")
 
-    print(f"\nAll results saved to: {results_dir}")
+def get_batch_processor(batch_id):
+    """Get a batch processor by ID"""
+    with batch_lock:
+        return batch_processors.get(batch_id)
 
-if __name__ == "__main__":
-    main()
+
+def cleanup_old_batches(max_age_hours=24):
+    """Clean up old batch processors"""
+    current_time = time.time()
+    max_age_seconds = max_age_hours * 3600
+
+    with batch_lock:
+        to_remove = []
+        for batch_id, processor in batch_processors.items():
+            if processor.state['completed']:
+                age = current_time - processor.state['start_time']
+                if age > max_age_seconds:
+                    to_remove.append(batch_id)
+
+        for batch_id in to_remove:
+            del batch_processors[batch_id]
