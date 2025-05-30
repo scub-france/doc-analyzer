@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 import uuid
 import pdf2image
+from multipart_handler import MultipartHandler, default_handler
 
 # Add the parent directory to Python path to allow imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -23,6 +24,8 @@ frontend_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 app = Flask(__name__,
             static_folder=os.path.join(frontend_path, 'static'),
             static_url_path='/static')
+
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
 
 # Dictionary to store background task results
 task_results = {}
@@ -876,6 +879,508 @@ def debug_results():
         return jsonify({'error': str(e)}), 500
 
 # Cleanup task for batch processors
+
+
+@app.route('/api/upload/analyze', methods=['POST'])
+def api_upload_analyze():
+    """
+    API endpoint for uploading and analyzing a PDF file.
+    Expects multipart/form-data with:
+    - file: PDF file
+    - page_num: (optional) Page number to analyze (default: 1)
+    - adjust: (optional) Auto-adjust coordinates (default: true)
+    """
+    try:
+        # Check if file is in request
+        if 'file' not in request.files:
+            return jsonify(default_handler.create_multipart_response(
+                False, {'error': 'No file part in request'}
+            )), 400
+
+        file = request.files['file']
+
+        # Save uploaded file
+        success, result = default_handler.save_uploaded_file(file, permanent=True)
+        if not success:
+            return jsonify(default_handler.create_multipart_response(False, result)), 400
+
+        # Get processing parameters
+        page_num = request.form.get('page_num', '1')
+        adjust = request.form.get('adjust', 'true').lower() == 'true'
+
+        # Run analyzer
+        filepath = result['filepath']
+        command = f"python backend/page_treatment/analyzer.py --image {filepath} --page {page_num} --start-page {page_num} --end-page {page_num}"
+
+        # Generate task ID
+        task_id = f"api_analyzer_{int(time.time() * 1000)}"
+
+        # Initialize task result
+        task_results[task_id] = {
+            'success': None,
+            'output': "Processing uploaded file...",
+            'done': False,
+            'file_info': result
+        }
+
+        # Start background processing
+        thread = threading.Thread(target=run_command, args=(task_id, command))
+        thread.daemon = True
+        thread.start()
+
+        # Return response
+        return jsonify(default_handler.create_multipart_response(True, {
+            'task_id': task_id,
+            'file_info': result,
+            'message': f"Processing started for {result['filename']}, page {page_num}"
+        }))
+
+    except Exception as e:
+        logger.error(f"Error in api_upload_analyze: {str(e)}")
+        return jsonify(default_handler.create_multipart_response(
+            False, {'error': str(e)}
+        )), 500
+
+
+@app.route('/api/upload/process', methods=['POST'])
+def api_upload_process():
+    """
+    API endpoint for uploading and processing a PDF through all stages.
+    Expects multipart/form-data with:
+    - file: PDF file
+    - page_num: (optional) Page number (default: 1)
+    - adjust: (optional) Auto-adjust coordinates (default: true)
+    - stages: (optional) Comma-separated list of stages to run (default: analyzer,visualizer,extractor)
+    """
+    try:
+        # Check if file is in request
+        if 'file' not in request.files:
+            return jsonify(default_handler.create_multipart_response(
+                False, {'error': 'No file part in request'}
+            )), 400
+
+        file = request.files['file']
+
+        # Save uploaded file
+        success, result = default_handler.save_uploaded_file(file, permanent=True)
+        if not success:
+            return jsonify(default_handler.create_multipart_response(False, result)), 400
+
+        # Get processing parameters
+        page_num = request.form.get('page_num', '1')
+        adjust = request.form.get('adjust', 'true').lower() == 'true'
+        stages = request.form.get('stages', 'analyzer,visualizer,extractor').split(',')
+
+        # Create a combined task ID
+        task_id = f"api_process_{int(time.time() * 1000)}"
+
+        # Process through all stages
+        filepath = result['filepath']
+        processing_info = {
+            'task_id': task_id,
+            'file_info': result,
+            'page_num': page_num,
+            'adjust': adjust,
+            'stages': stages,
+            'current_stage': None,
+            'completed_stages': [],
+            'results': {}
+        }
+
+        # Start processing in background
+        def process_all_stages():
+            try:
+                # Run analyzer if requested
+                if 'analyzer' in stages:
+                    processing_info['current_stage'] = 'analyzer'
+                    command = f"python backend/page_treatment/analyzer.py --image {filepath} --page {page_num} --start-page {page_num} --end-page {page_num}"
+
+                    process = subprocess.run(
+                        command,
+                        shell=True,
+                        capture_output=True,
+                        text=True,
+                        input="n\n"
+                    )
+
+                    if process.returncode == 0:
+                        processing_info['completed_stages'].append('analyzer')
+                        processing_info['results']['analyzer'] = {
+                            'success': True,
+                            'doctags_file': 'results/output.doctags.txt'
+                        }
+                    else:
+                        processing_info['results']['analyzer'] = {
+                            'success': False,
+                            'error': process.stderr
+                        }
+                        return
+
+                # Run visualizer if requested
+                if 'visualizer' in stages:
+                    processing_info['current_stage'] = 'visualizer'
+                    command = f"python backend/page_treatment/visualizer.py --doctags results/output.doctags.txt --pdf {filepath} --page {page_num}"
+                    if adjust:
+                        command += " --adjust"
+
+                    process = subprocess.run(
+                        command,
+                        shell=True,
+                        capture_output=True,
+                        text=True
+                    )
+
+                    if process.returncode == 0:
+                        processing_info['completed_stages'].append('visualizer')
+                        processing_info['results']['visualizer'] = {
+                            'success': True,
+                            'visualization_file': f'results/visualization_page_{page_num}.png'
+                        }
+                    else:
+                        processing_info['results']['visualizer'] = {
+                            'success': False,
+                            'error': process.stderr
+                        }
+                        return
+
+                # Run extractor if requested
+                if 'extractor' in stages:
+                    processing_info['current_stage'] = 'extractor'
+                    command = f"python backend/page_treatment/picture_extractor.py --doctags results/output.doctags.txt --pdf {filepath} --page {page_num}"
+                    if adjust:
+                        command += " --adjust"
+
+                    process = subprocess.run(
+                        command,
+                        shell=True,
+                        capture_output=True,
+                        text=True
+                    )
+
+                    if process.returncode == 0:
+                        processing_info['completed_stages'].append('extractor')
+
+                        # Count extracted images
+                        pics_dir = Path("results") / "pictures"
+                        image_count = len(list(pics_dir.glob("*.png"))) if pics_dir.exists() else 0
+
+                        processing_info['results']['extractor'] = {
+                            'success': True,
+                            'images_extracted': image_count,
+                            'pictures_folder': 'results/pictures'
+                        }
+                    else:
+                        processing_info['results']['extractor'] = {
+                            'success': False,
+                            'error': process.stderr
+                        }
+
+                processing_info['current_stage'] = 'completed'
+
+            except Exception as e:
+                processing_info['current_stage'] = 'error'
+                processing_info['error'] = str(e)
+
+        # Store processing info
+        task_results[task_id] = processing_info
+
+        # Start background thread
+        thread = threading.Thread(target=process_all_stages)
+        thread.daemon = True
+        thread.start()
+
+        # Return response
+        return jsonify(default_handler.create_multipart_response(True, {
+            'task_id': task_id,
+            'file_info': result,
+            'stages': stages,
+            'message': f"Processing started for {result['filename']}, page {page_num}"
+        }))
+
+    except Exception as e:
+        logger.error(f"Error in api_upload_process: {str(e)}")
+        return jsonify(default_handler.create_multipart_response(
+            False, {'error': str(e)}
+        )), 500
+
+
+@app.route('/api/upload/batch', methods=['POST'])
+def api_upload_batch():
+    """
+    API endpoint for uploading and batch processing a PDF.
+    Expects multipart/form-data with:
+    - file: PDF file
+    - start_page: (optional) Start page (default: 1)
+    - end_page: (optional) End page (default: all)
+    - parallel: (optional) Enable parallel processing (default: true)
+    - adjust: (optional) Auto-adjust coordinates (default: true)
+    """
+    if not batch_processing_available:
+        return jsonify(default_handler.create_multipart_response(
+            False, {'error': 'Batch processing not available'}
+        )), 503
+
+    try:
+        # Check if file is in request
+        if 'file' not in request.files:
+            return jsonify(default_handler.create_multipart_response(
+                False, {'error': 'No file part in request'}
+            )), 400
+
+        file = request.files['file']
+
+        # Save uploaded file
+        success, result = default_handler.save_uploaded_file(file, permanent=True)
+        if not success:
+            return jsonify(default_handler.create_multipart_response(False, result)), 400
+
+        # Get PDF info
+        filepath = result['filepath']
+        try:
+            from pdf2image.pdf2image import pdfinfo_from_path
+            info = pdfinfo_from_path(filepath)
+            total_pages = info["Pages"]
+        except Exception as e:
+            return jsonify(default_handler.create_multipart_response(
+                False, {'error': f'Failed to read PDF info: {str(e)}'}
+            )), 400
+
+        # Get processing parameters
+        start_page = int(request.form.get('start_page', '1'))
+        end_page = int(request.form.get('end_page', str(total_pages)))
+        parallel = request.form.get('parallel', 'true').lower() == 'true'
+        adjust = request.form.get('adjust', 'true').lower() == 'true'
+
+        # Validate page range
+        start_page = max(1, min(start_page, total_pages))
+        end_page = max(start_page, min(end_page, total_pages))
+
+        # Start batch processing
+        batch_id = f"api_{uuid.uuid4().hex[:8]}"
+        options = {
+            'adjust': adjust,
+            'parallel': parallel,
+            'generate_report': True
+        }
+
+        if start_batch_processing(batch_id, filepath, start_page, end_page, options):
+            return jsonify(default_handler.create_multipart_response(True, {
+                'batch_id': batch_id,
+                'file_info': result,
+                'total_pages': total_pages,
+                'processing_pages': f"{start_page}-{end_page}",
+                'page_count': end_page - start_page + 1,
+                'message': f'Batch processing started for {result["filename"]}'
+            }))
+        else:
+            return jsonify(default_handler.create_multipart_response(
+                False, {'error': 'Failed to start batch processing'}
+            )), 500
+
+    except Exception as e:
+        logger.error(f"Error in api_upload_batch: {str(e)}")
+        return jsonify(default_handler.create_multipart_response(
+            False, {'error': str(e)}
+        )), 500
+
+
+@app.route('/api/task/<task_id>', methods=['GET'])
+def api_task_status(task_id):
+    """Get status of a processing task"""
+    if task_id not in task_results:
+        return jsonify({
+            'success': False,
+            'error': 'Task not found'
+        }), 404
+
+    return jsonify({
+        'success': True,
+        'task': task_results[task_id]
+    })
+
+
+@app.route('/api/batch/<batch_id>', methods=['GET'])
+def api_batch_status(batch_id):
+    """Get status of a batch processing job"""
+    if not batch_processing_available:
+        return jsonify({
+            'success': False,
+            'error': 'Batch processing not available'
+        }), 503
+
+    processor = get_batch_processor(batch_id)
+    if not processor:
+        return jsonify({
+            'success': False,
+            'error': 'Batch not found'
+        }), 404
+
+    state = processor.get_state()
+    return jsonify({
+        'success': True,
+        'batch': state
+    })
+
+
+@app.route('/api/cleanup', methods=['POST'])
+def api_cleanup():
+    """Cleanup old uploaded files"""
+    try:
+        max_age_hours = int(request.json.get('max_age_hours', 24))
+        folder = request.json.get('folder', 'both')
+
+        removed_count = default_handler.cleanup_old_files(max_age_hours, folder)
+
+        return jsonify({
+            'success': True,
+            'removed_files': removed_count,
+            'message': f'Removed {removed_count} old files'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+# Add this streamlined endpoint to your app.py
+
+@app.route('/api/upload/doctags', methods=['POST'])
+def api_upload_doctags():
+    """
+    Simple API endpoint for uploading a PDF and getting DocTags output.
+    Automatically cleans up the uploaded file after processing.
+
+    Expects multipart/form-data with:
+    - file: PDF file
+    - page_num: (optional) Page number to analyze (default: 1)
+
+    Returns JSON with:
+    - success: boolean
+    - filename: original filename
+    - page: page number processed
+    - doctags: the DocTags content
+    """
+    uploaded_file_path = None
+
+    try:
+        # Check if file is in request
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file part in request'}), 400
+
+        file = request.files['file']
+
+        # Save uploaded file temporarily
+        success, result = default_handler.save_uploaded_file(file, permanent=True)
+        if not success:
+            return jsonify({'success': False, 'error': result.get('error', 'Failed to save file')}), 400
+
+        # Store the uploaded file path for cleanup
+        uploaded_file_path = result['filepath']
+
+        # Get page number
+        page_num = request.form.get('page_num', '1')
+
+        # Run analyzer directly (synchronously)
+        command = f"python backend/page_treatment/analyzer.py --image {uploaded_file_path} --page {page_num} --start-page {page_num} --end-page {page_num}"
+
+        try:
+            # Run the command with timeout
+            process = subprocess.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                input="n\n",
+                timeout=60  # 60 second timeout
+            )
+
+            if process.returncode != 0:
+                error_msg = process.stderr or 'Analyzer failed'
+                logger.error(f"Analyzer error: {error_msg}")
+                return jsonify({
+                    'success': False,
+                    'error': 'Analyzer failed',
+                    'details': error_msg
+                }), 500
+
+            # Check if doctags file was created
+            doctags_path = Path("results") / "output.doctags.txt"
+            if not doctags_path.exists():
+                return jsonify({
+                    'success': False,
+                    'error': 'DocTags file not generated'
+                }), 500
+
+            # Read the doctags content
+            with open(doctags_path, 'r', encoding='utf-8') as f:
+                doctags_content = f.read()
+
+            # Prepare successful response
+            response = {
+                'success': True,
+                'filename': result['filename'],
+                'page': int(page_num),
+                'doctags': doctags_content
+            }
+
+            # Clean up the uploaded file
+            try:
+                if uploaded_file_path and os.path.exists(uploaded_file_path):
+                    os.remove(uploaded_file_path)
+                    logger.info(f"Cleaned up uploaded file: {uploaded_file_path}")
+            except Exception as cleanup_error:
+                logger.error(f"Error cleaning up file: {cleanup_error}")
+                # Don't fail the request due to cleanup error
+
+            return jsonify(response)
+
+        except subprocess.TimeoutExpired:
+            return jsonify({
+                'success': False,
+                'error': 'Processing timeout - page took too long to analyze'
+            }), 500
+
+        except Exception as e:
+            logger.error(f"Processing error: {str(e)}")
+            return jsonify({
+                'success': False,
+                'error': f'Processing error: {str(e)}'
+            }), 500
+
+    except Exception as e:
+        logger.error(f"Error in api_upload_doctags: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+    finally:
+        # Ensure cleanup happens even if there's an error
+        try:
+            if uploaded_file_path and os.path.exists(uploaded_file_path):
+                os.remove(uploaded_file_path)
+                logger.info(f"Cleaned up uploaded file in finally block: {uploaded_file_path}")
+        except Exception as cleanup_error:
+            logger.error(f"Error in finally cleanup: {cleanup_error}")
+
+# Add periodic cleanup task
+def periodic_cleanup():
+    """Run cleanup every hour"""
+    while True:
+        time.sleep(3600)  # Wait 1 hour
+        try:
+            removed = default_handler.cleanup_old_files(24, 'both')
+            if removed > 0:
+                logger.info(f"Periodic cleanup removed {removed} old files")
+        except Exception as e:
+            logger.error(f"Error in periodic cleanup: {str(e)}")
+
+# Start cleanup thread
+cleanup_thread = threading.Thread(target=periodic_cleanup)
+cleanup_thread.daemon = True
+cleanup_thread.start()
+
+
 def cleanup_task():
     """Periodic cleanup of old batch processors"""
     if not batch_processing_available:
