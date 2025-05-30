@@ -25,8 +25,8 @@ def parse_arguments():
     results_dir = ensure_results_folder()
 
     parser = argparse.ArgumentParser(description='Visualize zones identified in DocTags format')
-    parser.add_argument('--doctags', '-d', type=str, required=True,
-                        help='Path to DocTags file')
+    parser.add_argument('--doctags', '-d', type=str, required=False,
+                        help='Path to DocTags file (optional, will auto-detect if not provided)')
     parser.add_argument('--pdf', '-p', type=str, required=True,
                         help='Path to original PDF file')
     parser.add_argument('--page', type=int, default=1,
@@ -46,6 +46,10 @@ def parse_doctags(doctags_path):
 
     with open(doctags_path, 'r', encoding='utf-8') as f:
         doctags_content = f.read()
+
+    # Check if file is empty or invalid
+    if not doctags_content.strip():
+        raise ValueError("DocTags file is empty")
 
     # Extract content between <doctag> tags
     doctag_match = re.search(r'<doctag>(.*?)</doctag>', doctags_content, re.DOTALL)
@@ -87,6 +91,10 @@ def parse_doctags(doctags_path):
                 'x2': x2, 'y2': y2,
                 'content': text_content
             })
+
+    # If no zones found, it might be a page with no detectable content
+    if not zones:
+        print(f"Warning: No zones with location data found in {doctags_path}")
 
     return zones
 
@@ -153,23 +161,30 @@ def process_page(pdf_path, page_num, doctags_path, output_path, dpi, adjust):
     image = load_pdf_page(pdf_path, page_num, dpi)
     print(f"Page {page_num} loaded: {image.size}")
 
-    # Parse DocTags
-    zones = parse_doctags(doctags_path)
-    print(f"Found {len(zones)} zones in DocTags")
+    try:
+        # Parse DocTags
+        zones = parse_doctags(doctags_path)
+        print(f"Found {len(zones)} zones in DocTags")
 
-    if zones:
-        # Check if we need to adjust coordinates
-        max_x = max([zone['x2'] for zone in zones])
-        max_y = max([zone['y2'] for zone in zones])
+        if zones:
+            # Check if we need to adjust coordinates
+            max_x = max([zone['x2'] for zone in zones])
+            max_y = max([zone['y2'] for zone in zones])
 
-        # Auto-adjust if needed
-        if max_x <= DEFAULT_GRID_SIZE and max_y <= DEFAULT_GRID_SIZE:
-            print(f"Detected normalized coordinates (0-{DEFAULT_GRID_SIZE} grid)")
-            zones = normalize_coordinates(zones, image.width, image.height)
-        elif adjust:
-            zones = auto_adjust_coordinates(zones, image.width, image.height)
+            # Auto-adjust if needed
+            if max_x <= DEFAULT_GRID_SIZE and max_y <= DEFAULT_GRID_SIZE:
+                print(f"Detected normalized coordinates (0-{DEFAULT_GRID_SIZE} grid)")
+                zones = normalize_coordinates(zones, image.width, image.height)
+            elif adjust:
+                zones = auto_adjust_coordinates(zones, image.width, image.height)
+        else:
+            print(f"Warning: No zones found for page {page_num}, creating blank visualization")
 
-    # Create visualization
+    except ValueError as e:
+        print(f"Warning: {e} for page {page_num}, creating blank visualization")
+        zones = []
+
+    # Create visualization (even if no zones)
     create_visualization(image, zones, page_num, output_path)
 
     return True

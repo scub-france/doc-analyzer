@@ -491,6 +491,19 @@ if batch_processing_available:
             if not pdf_file or not os.path.exists(pdf_file):
                 return jsonify({'success': False, 'error': 'Invalid PDF file'}), 400
 
+            # Check if there's already an active batch for this PDF
+            from backend.batch_treatment.batch_processor import batch_processors, batch_lock
+            with batch_lock:
+                for batch_id, processor in batch_processors.items():
+                    if (processor.pdf_file == pdf_file and
+                            not processor.state['completed'] and
+                            not processor.state['cancelled']):
+                        return jsonify({
+                            'success': False,
+                            'error': 'A batch process is already running for this PDF',
+                            'existing_batch_id': batch_id
+                        }), 409
+
             options = {
                 'adjust': request.form.get('adjust') == 'true',
                 'parallel': request.form.get('parallel') == 'true',

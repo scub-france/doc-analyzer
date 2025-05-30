@@ -163,6 +163,7 @@ class BatchProcessor:
     def run_analyzer(self, page_num):
         """Run the analyzer for a specific page"""
         try:
+            # Use page-specific output to avoid conflicts
             command = (f"python backend/page_treatment/analyzer.py "
                        f"--image {self.pdf_file} --page {page_num} "
                        f"--start-page {page_num} --end-page {page_num}")
@@ -174,16 +175,34 @@ class BatchProcessor:
             if not success:
                 raise Exception(f"Analyzer failed: {stderr}")
 
-            # Copy doctags to batch directory
-            doctags_src = ensure_results_folder() / "output.doctags.txt"
-            doctags_dst = self.results_dir / f"page_{page_num}.doctags.txt"
+            # The analyzer will create either output.doctags.txt or output_pageN.doctags.txt
+            # Check both locations
+            results_dir = ensure_results_folder()
+            possible_paths = [
+                results_dir / "output.doctags.txt",
+                results_dir / f"output_page{page_num}.doctags.txt"
+            ]
 
-            if doctags_src.exists():
-                shutil.copy2(doctags_src, doctags_dst)
-                self.log_message(f"DocTags saved for page {page_num}")
-            else:
+            doctags_src = None
+            for path in possible_paths:
+                if path.exists():
+                    doctags_src = path
+                    break
+
+            if not doctags_src:
                 raise Exception("DocTags file not generated")
 
+            # Copy to batch directory with page-specific name
+            doctags_dst = self.results_dir / f"page_{page_num}.doctags.txt"
+            shutil.copy2(doctags_src, doctags_dst)
+
+            # Verify the file has content
+            with open(doctags_dst, 'r') as f:
+                content = f.read().strip()
+                if not content or '<doctag>' not in content:
+                    raise Exception("DocTags file is empty or invalid")
+
+            self.log_message(f"DocTags saved for page {page_num}")
             return True
 
         except Exception as e:
