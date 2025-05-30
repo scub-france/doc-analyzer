@@ -8,21 +8,6 @@ const appState = {
     }
 };
 
-// API Client
-const api = {
-    async get(url) {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        return response.json();
-    },
-
-    async post(url, formData) {
-        const response = await fetch(url, { method: 'POST', body: formData });
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-        return response.json();
-    }
-};
-
 // UI Helper Functions
 const ui = {
     show(elementId) {
@@ -158,7 +143,12 @@ function stopPolling() {
 async function pollTasks() {
     for (const taskId in appState.activeTasks) {
         try {
-            const data = await api.get(`/task-status/${taskId}`);
+            const response = await fetch(`/task-status/${taskId}`);
+            const data = await response.json();
+
+            // Debug log
+            console.log(`Task ${taskId} status:`, data);
+
             updateTaskStatus(taskId, data);
         } catch (error) {
             console.error('Error polling task:', error);
@@ -179,14 +169,14 @@ function updateTaskStatus(taskId, data) {
         delete appState.activeTasks[taskId];
         stopPolling();
     } else {
-        ui.setHtml(statusElement, '<div class="loader"></div><span class="working">Running...</span>');
-        ui.show(statusElement.id);
+        ui.setHtml(`${taskInfo.type}-status`, '<div class="loader"></div><span class="working">Running...</span>');
+        ui.show(`${taskInfo.type}-status`);
     }
 }
 
 function handleTaskSuccess(taskId, taskInfo, data, statusElement) {
-    ui.setHtml(statusElement, '<span class="success">✓ Completed successfully!</span>');
-    ui.show(statusElement.id);
+    ui.setHtml(`${taskInfo.type}-status`, '<span class="success">✓ Completed successfully!</span>');
+    ui.show(`${taskInfo.type}-status`);
     ui.enable(`${taskInfo.type}-btn`);
 
     // Display output
@@ -215,9 +205,10 @@ function handleTaskSuccess(taskId, taskInfo, data, statusElement) {
 }
 
 function handleTaskFailure(taskId, data, statusElement) {
-    ui.setHtml(statusElement, '<span class="error">✗ Failed: ' + (data.error || 'Unknown error') + '</span>');
-    ui.show(statusElement.id);
-    ui.enable(statusElement.id.replace('-status', '-btn'));
+    const taskInfo = appState.activeTasks[taskId];
+    ui.setHtml(`${taskInfo.type}-status`, '<span class="error">✗ Failed: ' + (data.error || 'Unknown error') + '</span>');
+    ui.show(`${taskInfo.type}-status`);
+    ui.enable(`${taskInfo.type}-btn`);
 
     ui.setText('output', 'Error: ' + (data.error || 'Unknown error'));
     ui.show('output');
@@ -257,7 +248,11 @@ async function runScript(script) {
     formData.append('adjust', adjust);
 
     try {
-        const data = await api.post(`/run-${script}`, formData);
+        const response = await fetch(`/run-${script}`, {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
 
         if (data.success && data.task_id) {
             appState.activeTasks[data.task_id] = {
@@ -375,7 +370,8 @@ async function checkEnvironment() {
     ui.setHtml('env-details', '<div class="loader"></div> Checking environment...');
 
     try {
-        const data = await api.get('/check-environment');
+        const response = await fetch('/check-environment');
+        const data = await response.json();
 
         let html = '<ul>';
         html += `<li>Working directory: <code>${data.cwd}</code></li>`;
@@ -413,7 +409,12 @@ async function manuallyRunScript() {
     formData.append('command', command);
 
     try {
-        const data = await api.post('/run-manual-command', formData);
+        const response = await fetch('/run-manual-command', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+
         ui.setText('output',
             'Command: ' + command + '\n\n' +
             (data.success ? 'Success!\n\n' : 'Failed!\n\n') +
@@ -432,7 +433,8 @@ window.addEventListener('DOMContentLoaded', async function() {
     ui.setHtml('pdf-load-status', '<div class="loader"></div> Loading PDF files...');
 
     try {
-        const data = await api.get('/pdf-files');
+        const response = await fetch('/pdf-files');
+        const data = await response.json();
         const select = document.getElementById('pdf_file');
 
         if (data.length === 0) {

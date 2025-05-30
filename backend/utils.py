@@ -169,6 +169,7 @@ def calculate_scale_factor(max_coord: float, image_size: float) -> float:
     else:
         return max(image_size / max_coord, 0.5)
 
+# In backend/utils.py, make sure this function exists:
 def run_command_with_timeout(command: str, timeout: int = 300, input_text: str = "n\n") -> Tuple[bool, str, str]:
     """
     Run a command with timeout and return success, stdout, stderr.

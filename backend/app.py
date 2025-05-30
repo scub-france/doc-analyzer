@@ -4,6 +4,7 @@ Flask application for DocTags web interface
 """
 
 from flask import Flask, request, send_file, jsonify
+import subprocess
 import os
 import sys
 import time
@@ -37,7 +38,6 @@ app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
 
 # Task results storage
 task_results = {}
-task_lock = threading.Lock()
 
 # Import batch processor if available
 try:
@@ -134,49 +134,178 @@ def pdf_preview(pdf_file, page_num):
         logger.error(f"Error generating PDF preview: {e}")
         return jsonify({'error': str(e)}), 500
 
-def run_background_task(task_id, command):
-    """Run a command in background and store results"""
-    logger.info(f"Running task {task_id}: {command}")
-
+def run_command(task_id, command):
+    """Run a command in a background thread and store result"""
+    logger.info(f"Running command: {command}")
     try:
-        success, stdout, stderr = run_command_with_timeout(command, PROCESSING_TIMEOUT)
+        # Run the command with pipe input to automatically answer "n" to prompts
+        process = subprocess.Popen(
+            command,
+            shell=True,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            universal_newlines=True
+        )
 
-        with task_lock:
+        # Send "n" to the process to bypass prompts
+        stdout, stderr = process.communicate(input="n\n")
+
+        # Log output for debugging
+        logger.info(f"Command stdout: {stdout[:500]}...")
+        if stderr:
+            logger.error(f"Command stderr: {stderr}")
+
+        # Update task result
+        if process.returncode == 0:
             task_results[task_id] = {
-                'success': success,
+                'success': True,
                 'output': stdout,
-                'error': stderr if not success else None,
                 'done': True
             }
-
-        logger.info(f"Task {task_id} completed: {'success' if success else 'failed'}")
-
-    except Exception as e:
-        logger.error(f"Task {task_id} error: {e}")
-        with task_lock:
+            logger.info(f"Command completed successfully: {task_id}")
+        else:
+            error_message = stderr or f"Command failed with return code {process.returncode}"
             task_results[task_id] = {
                 'success': False,
-                'error': str(e),
+                'error': error_message,
                 'done': True
             }
+            logger.error(f"Command failed: {task_id} - {error_message}")
+
+    except Exception as e:
+        import traceback
+        logger.error(f"Unexpected error: {task_id} - {str(e)}")
+        logger.error(traceback.format_exc())
+        task_results[task_id] = {
+            'success': False,
+            'error': f"Exception: {str(e)}",
+            'done': True
+        }
 
 @app.route('/run-analyzer', methods=['POST'])
 def run_analyzer():
-    return run_processing_task('analyzer', request.form)
+    try:
+        pdf_file = request.form.get('pdf_file')
+        page_num = request.form.get('page_num', 1)
+
+        if not pdf_file:
+            return jsonify({'success': False, 'error': 'PDF file not specified'}), 400
+
+        if not os.path.exists(pdf_file):
+            return jsonify({'success': False, 'error': f'PDF file not found: {pdf_file}'}), 404
+
+        command = f"python backend/page_treatment/analyzer.py --image {pdf_file} --page {page_num} --start-page {page_num} --end-page {page_num}"
+
+        # Generate task ID
+        task_id = f"analyzer_{int(time.time())}"
+
+        # Initialize task result
+        task_results[task_id] = {
+            'success': None,
+            'output': "Running analyzer...",
+            'done': False
+        }
+
+        # Start background thread
+        thread = threading.Thread(target=run_command, args=(task_id, command))
+        thread.daemon = True
+        thread.start()
+
+        return jsonify({
+            'success': True,
+            'task_id': task_id,
+            'message': f"Analyzer started. Processing {pdf_file} page {page_num}..."
+        })
+
+    except Exception as e:
+        logger.error(f"Error starting analyzer: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/run-visualizer', methods=['POST'])
 def run_visualizer():
-    return run_processing_task('visualizer', request.form)
+    try:
+        pdf_file = request.form.get('pdf_file')
+        page_num = request.form.get('page_num', 1)
+        adjust = request.form.get('adjust') == 'true'
+
+        if not pdf_file:
+            return jsonify({'success': False, 'error': 'PDF file not specified'}), 400
+
+        command = f"python backend/page_treatment/visualizer.py --doctags results/output.doctags.txt --pdf {pdf_file} --page {page_num}"
+        if adjust:
+            command += " --adjust"
+
+        # Generate task ID with page number
+        task_id = f"visualizer_{int(time.time())}_{page_num}"
+
+        # Initialize task result
+        task_results[task_id] = {
+            'success': None,
+            'output': "Running visualizer...",
+            'done': False
+        }
+
+        # Start background thread
+        thread = threading.Thread(target=run_command, args=(task_id, command))
+        thread.daemon = True
+        thread.start()
+
+        return jsonify({
+            'success': True,
+            'task_id': task_id,
+            'message': f"Visualizer started. Processing {pdf_file} page {page_num}..."
+        })
+
+    except Exception as e:
+        logger.error(f"Error starting visualizer: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/run-extractor', methods=['POST'])
 def run_extractor():
-    return run_processing_task('extractor', request.form)
+    try:
+        pdf_file = request.form.get('pdf_file')
+        page_num = request.form.get('page_num', 1)
+        adjust = request.form.get('adjust') == 'true'
+
+        if not pdf_file:
+            return jsonify({'success': False, 'error': 'PDF file not specified'}), 400
+
+        command = f"python backend/page_treatment/picture_extractor.py --doctags results/output.doctags.txt --pdf {pdf_file} --page {page_num}"
+        if adjust:
+            command += " --adjust"
+
+        # Generate task ID with page number
+        task_id = f"extractor_{int(time.time())}_{page_num}"
+
+        # Initialize task result
+        task_results[task_id] = {
+            'success': None,
+            'output': "Running picture extractor...",
+            'done': False
+        }
+
+        # Start background thread
+        thread = threading.Thread(target=run_command, args=(task_id, command))
+        thread.daemon = True
+        thread.start()
+
+        return jsonify({
+            'success': True,
+            'task_id': task_id,
+            'message': f"Picture extractor started. Processing {pdf_file} page {page_num}..."
+        })
+
+    except Exception as e:
+        logger.error(f"Error starting extractor: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 def run_processing_task(task_type, form_data):
     """Generic function to run processing tasks"""
     try:
         pdf_file = form_data.get('pdf_file')
-        page_num = form_data.get('page_num', 1)
+        page_num = form_data.get('page_num', '1')
 
         if not pdf_file:
             return jsonify({'success': False, 'error': 'PDF file not specified'}), 400
@@ -187,7 +316,7 @@ def run_processing_task(task_type, form_data):
         # Build command based on task type
         command = build_command(task_type, pdf_file, page_num, form_data)
 
-        # Generate task ID
+        # Generate task ID with page number
         task_id = f"{task_type}_{int(time.time() * 1000)}_{page_num}"
 
         # Initialize task result
@@ -197,6 +326,8 @@ def run_processing_task(task_type, form_data):
                 'output': f"Running {task_type}...",
                 'done': False
             }
+
+        logger.info(f"Created task {task_id} for {task_type} on page {page_num}")
 
         # Start background thread
         thread = threading.Thread(target=run_background_task, args=(task_id, command))
@@ -211,6 +342,8 @@ def run_processing_task(task_type, form_data):
 
     except Exception as e:
         logger.error(f"Error starting {task_type}: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
 
 def build_command(task_type, pdf_file, page_num, form_data):
@@ -240,18 +373,31 @@ def build_command(task_type, pdf_file, page_num, form_data):
 
 @app.route('/task-status/<task_id>')
 def task_status(task_id):
-    """Get status of a background task"""
-    with task_lock:
-        if task_id not in task_results:
-            return jsonify({'success': False, 'error': 'Task not found'}), 404
+    if task_id not in task_results:
+        logger.warning(f"Task {task_id} not found in task_results")
+        return jsonify({'success': False, 'error': 'Task not found'}), 404
 
-        result = task_results[task_id].copy()
+    result = task_results[task_id].copy()
 
-    # Add file paths for completed tasks
+    # Log the complete result for debugging
+    logger.info(f"Task {task_id} result: {result}")
+
+    # If task is completed successfully, add file paths
     if result.get('done') and result.get('success'):
-        if 'visualizer' in task_id:
-            page_num = task_id.split('_')[-1]
-            result['image_file'] = f"results/visualization_page_{page_num}.png"
+        if task_id.startswith('analyzer_'):
+            doctags_path = Path("results") / "output.doctags.txt"
+            if doctags_path.exists():
+                result['doctags_file'] = "results/output.doctags.txt"
+                logger.info(f"Added doctags_file to result")
+            else:
+                logger.warning(f"DocTags file not found: {doctags_path}")
+
+        elif task_id.startswith('visualizer_'):
+            # Extract page number from the end of task_id if it exists
+            page_num = task_id.split('_')[-1] if len(task_id.split('_')) > 2 else "1"
+            viz_filename = f"visualization_page_{page_num}.png"
+            result['image_file'] = f"results/{viz_filename}"
+            logger.info(f"Found visualization at: {result['image_file']}")
 
     return jsonify(result)
 

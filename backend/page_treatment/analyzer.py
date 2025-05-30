@@ -81,15 +81,19 @@ def process_page(model, processor, config, args, pil_image, page_num=1):
     from mlx_vlm.utils import stream_generate
 
     results_dir = ensure_results_folder()
-    output_base = Path(args.output)
 
-    # Handle multi-page output naming
-    if Path(args.image).suffix.lower() == '.pdf' and page_num > 1:
-        output_path = results_dir / f"{output_base.stem}_page{page_num}{output_base.suffix}"
+    # For web interface, always use output.doctags.txt
+    # For command line with specific pages, use page-specific names
+    if args.start_page == args.end_page and args.start_page == page_num:
+        # Single page processing
+        output_path = results_dir / "output.html"
+        doctags_path = results_dir / "output.doctags.txt"
     else:
-        output_path = output_base
+        # Multi-page processing
+        output_path = results_dir / f"output_page{page_num}.html"
+        doctags_path = results_dir / f"output_page{page_num}.doctags.txt"
 
-    print(f"Processing page {page_num}, output will be saved to {output_path}")
+    print(f"Processing page {page_num}")
 
     # Save image temporarily
     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as temp_img_file:
@@ -117,7 +121,6 @@ def process_page(model, processor, config, args, pil_image, page_num=1):
             os.unlink(temp_img_path)
 
     # Save DocTags output
-    doctags_path = results_dir / f"{output_path.stem}.doctags.txt"
     with open(doctags_path, 'w', encoding='utf-8') as f:
         f.write(output)
     print(f"Raw DocTags saved to: {doctags_path}")
