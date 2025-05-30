@@ -1,8 +1,7 @@
 .idea
 document_output
 results
-handbook.pdf
-ariston.pdf
+docs
 .DS_Store
 __pycache__/
-perplexity.pdf
+*.pdf
