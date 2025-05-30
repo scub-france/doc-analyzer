@@ -1,107 +1,127 @@
-// Keep track of active tasks
-const activeTasks = {};
-let pollingInterval = null;
-
-// Keep track of generated outputs
-const generatedOutputs = {
-    visualizer: null,
-    extractor: false
+// DocTags Application State Management
+const appState = {
+    activeTasks: {},
+    pollingInterval: null,
+    generatedOutputs: {
+        visualizer: null,
+        extractor: false
+    }
 };
 
-// Load and display PDF preview
+// API Client
+const api = {
+    async get(url) {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return response.json();
+    },
+
+    async post(url, formData) {
+        const response = await fetch(url, { method: 'POST', body: formData });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return response.json();
+    }
+};
+
+// UI Helper Functions
+const ui = {
+    show(elementId) {
+        document.getElementById(elementId).classList.remove('hidden');
+    },
+
+    hide(elementId) {
+        document.getElementById(elementId).classList.add('hidden');
+    },
+
+    setText(elementId, text) {
+        document.getElementById(elementId).textContent = text;
+    },
+
+    setHtml(elementId, html) {
+        document.getElementById(elementId).innerHTML = html;
+    },
+
+    getValue(elementId) {
+        return document.getElementById(elementId).value;
+    },
+
+    setValue(elementId, value) {
+        document.getElementById(elementId).value = value;
+    },
+
+    disable(elementId) {
+        document.getElementById(elementId).disabled = true;
+    },
+
+    enable(elementId) {
+        document.getElementById(elementId).disabled = false;
+    }
+};
+
+// PDF Preview Functions
 function loadPDFPreview() {
-    const pdfFile = document.getElementById('pdf_file').value;
-    const pageNum = document.getElementById('page_num').value;
+    const pdfFile = ui.getValue('pdf_file');
+    const pageNum = ui.getValue('page_num');
 
     if (!pdfFile) {
-        document.getElementById('pdf-preview-container').classList.add('hidden');
+        ui.hide('pdf-preview-container');
         return;
     }
 
-    // Update page number display
-    document.getElementById('preview-page-num').textContent = pageNum;
+    ui.setText('preview-page-num', pageNum);
+    ui.setValue('preview-page-input', pageNum);
 
-    // Update preview page input
-    const previewPageInput = document.getElementById('preview-page-input');
-    if (previewPageInput) {
-        previewPageInput.value = pageNum;
-    }
-
-    // Load the preview image
     const previewImg = document.getElementById('pdf-preview-image');
     previewImg.src = `/pdf-preview/${encodeURIComponent(pdfFile)}/${pageNum}`;
+    ui.show('pdf-preview-container');
 
-    // Show the preview container
-    document.getElementById('pdf-preview-container').classList.remove('hidden');
-
-    // Handle loading errors
     previewImg.onerror = function() {
         this.alt = 'Failed to load PDF preview';
         console.error('Failed to load PDF preview');
     };
 }
 
-// Navigate to a specific page in the preview
-function navigateToPage(pageNum) {
-    const pdfFile = document.getElementById('pdf_file').value;
-    if (!pdfFile) return;
-
-    // Update the main page number input
-    document.getElementById('page_num').value = pageNum;
-
-    // Reload the preview
+function changePreviewPage(delta) {
+    const currentPage = parseInt(ui.getValue('page_num'));
+    const newPage = Math.max(1, currentPage + delta);
+    ui.setValue('page_num', newPage);
     loadPDFPreview();
 }
 
-// Handle preview page navigation
-function changePreviewPage(delta) {
-    const currentPage = parseInt(document.getElementById('page_num').value);
-    const newPage = Math.max(1, currentPage + delta);
-    navigateToPage(newPage);
-}
-
-// Handle direct page input in preview
 function goToPreviewPage() {
     const pageInput = document.getElementById('preview-page-input');
     const pageNum = parseInt(pageInput.value);
 
     if (pageNum && pageNum > 0) {
-        navigateToPage(pageNum);
+        ui.setValue('page_num', pageNum);
+        loadPDFPreview();
     } else {
-        // Reset to current page if invalid
-        pageInput.value = document.getElementById('page_num').value;
+        pageInput.value = ui.getValue('page_num');
     }
 }
 
-// Tab switching functionality
+// Tab Management
 function switchTab(tabName) {
-    // Hide all tab contents
-    const tabContents = document.querySelectorAll('.tab-content');
-    tabContents.forEach(content => content.classList.remove('active'));
+    // Hide all tab contents and deactivate buttons
+    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+    document.querySelectorAll('.tab-button').forEach(button => button.classList.remove('active'));
 
-    // Remove active class from all tab buttons
-    const tabButtons = document.querySelectorAll('.tab-button');
-    tabButtons.forEach(button => button.classList.remove('active'));
-
-    // Show selected tab content
+    // Show selected tab
     document.getElementById(tabName + '-tab').classList.add('active');
-
-    // Add active class to selected tab button
     event.target.classList.add('active');
 
-    // Show previously generated content when switching tabs
+    // Show previously generated content
     if (tabName === 'analyzer') {
-        // Load PDF preview if a PDF is selected
         loadPDFPreview();
-    } else if (tabName === 'visualizer' && generatedOutputs.visualizer) {
-        document.getElementById('result-image').src = generatedOutputs.visualizer + '?t=' + new Date().getTime();
-        document.getElementById('image-container').classList.remove('hidden');
-    } else if (tabName === 'extractor' && generatedOutputs.extractor) {
+    } else if (tabName === 'visualizer' && appState.generatedOutputs.visualizer) {
+        document.getElementById('result-image').src = appState.generatedOutputs.visualizer + '?t=' + Date.now();
+        ui.show('image-container');
+    } else if (tabName === 'extractor' && appState.generatedOutputs.extractor) {
         loadExtractedImages();
     }
 }
 
-// Update progress indicator
+// Progress Management
 function updateProgress(completedSteps) {
     for (let i = 1; i <= 3; i++) {
         const stepIndicator = document.getElementById(`step-${i}`);
@@ -121,72 +141,202 @@ function updateProgress(completedSteps) {
     }
 }
 
-// Load extracted images from the results folder
-function loadExtractedImages() {
-    const imageGallery = document.getElementById('extracted-images-gallery');
-    const imageContainer = document.getElementById('extracted-images-container');
-
-    // First try to load the index.html to get the list of images
-    fetch('/results/pictures/index.html')
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('No extracted images found');
-            }
-            return response.text();
-        })
-        .then(html => {
-            // Parse the HTML to extract image information
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
-            const imageCards = doc.querySelectorAll('.picture-card');
-
-            if (imageCards.length === 0) {
-                imageGallery.innerHTML = '<div class="no-images">No images were extracted from this page.</div>';
-                return;
-            }
-
-            let galleryHTML = '';
-            imageCards.forEach((card, index) => {
-                const img = card.querySelector('img');
-                const caption = card.querySelector('.picture-caption');
-                const coords = card.querySelector('.picture-coords');
-
-                if (img) {
-                    const imgSrc = img.getAttribute('src');
-                    const pictureId = index + 1;
-                    const captionText = caption ? caption.textContent : '';
-                    const coordsText = coords ? coords.textContent : '';
-
-                    galleryHTML += `
-                        <div class="extracted-image-card">
-                            <div class="image-wrapper">
-                                <img src="/results/pictures/${imgSrc}" alt="Extracted Image ${pictureId}" 
-                                     onclick="openImageModal('/results/pictures/${imgSrc}', '${captionText}', '${coordsText}')">
-                            </div>
-                            <div class="image-info">
-                                <h4>Picture ${pictureId}</h4>
-                                ${captionText ? `<p class="image-caption">${captionText}</p>` : ''}
-                                <p class="image-coords">${coordsText}</p>
-                            </div>
-                        </div>
-                    `;
-                }
-            });
-
-            imageGallery.innerHTML = galleryHTML;
-            imageContainer.classList.remove('hidden');
-            generatedOutputs.extractor = true;
-        })
-        .catch(error => {
-            console.log('No extracted images found:', error);
-            imageGallery.innerHTML = '<div class="no-images">No images have been extracted yet. Run the image extraction first.</div>';
-            generatedOutputs.extractor = false;
-        });
+// Task Management
+function startPolling() {
+    if (!appState.pollingInterval) {
+        appState.pollingInterval = setInterval(pollTasks, 1000);
+    }
 }
 
-// Open image in modal for better viewing
+function stopPolling() {
+    if (Object.keys(appState.activeTasks).length === 0 && appState.pollingInterval) {
+        clearInterval(appState.pollingInterval);
+        appState.pollingInterval = null;
+    }
+}
+
+async function pollTasks() {
+    for (const taskId in appState.activeTasks) {
+        try {
+            const data = await api.get(`/task-status/${taskId}`);
+            updateTaskStatus(taskId, data);
+        } catch (error) {
+            console.error('Error polling task:', error);
+        }
+    }
+}
+
+function updateTaskStatus(taskId, data) {
+    const taskInfo = appState.activeTasks[taskId];
+    const statusElement = document.getElementById(`${taskInfo.type}-status`);
+
+    if (data.done) {
+        if (data.success) {
+            handleTaskSuccess(taskId, taskInfo, data, statusElement);
+        } else {
+            handleTaskFailure(taskId, data, statusElement);
+        }
+        delete appState.activeTasks[taskId];
+        stopPolling();
+    } else {
+        ui.setHtml(statusElement, '<div class="loader"></div><span class="working">Running...</span>');
+        ui.show(statusElement.id);
+    }
+}
+
+function handleTaskSuccess(taskId, taskInfo, data, statusElement) {
+    ui.setHtml(statusElement, '<span class="success">✓ Completed successfully!</span>');
+    ui.show(statusElement.id);
+    ui.enable(`${taskInfo.type}-btn`);
+
+    // Display output
+    ui.setText('output', data.output);
+    ui.show('output');
+
+    // Handle specific task types
+    if (taskInfo.type === 'visualizer' && data.image_file) {
+        appState.generatedOutputs.visualizer = '/' + data.image_file;
+        document.getElementById('result-image').src = appState.generatedOutputs.visualizer + '?t=' + Date.now();
+        ui.show('image-container');
+    } else if (taskInfo.type === 'extractor') {
+        setTimeout(loadExtractedImages, 1000);
+    }
+
+    // Update progress
+    const progressMap = { 'analyzer': 1, 'visualizer': 2, 'extractor': 3 };
+    updateProgress(progressMap[taskInfo.type]);
+
+    // Enable next steps
+    if (taskInfo.type === 'analyzer') {
+        ui.enable('visualizer-btn');
+    } else if (taskInfo.type === 'visualizer') {
+        ui.enable('extractor-btn');
+    }
+}
+
+function handleTaskFailure(taskId, data, statusElement) {
+    ui.setHtml(statusElement, '<span class="error">✗ Failed: ' + (data.error || 'Unknown error') + '</span>');
+    ui.show(statusElement.id);
+    ui.enable(statusElement.id.replace('-status', '-btn'));
+
+    ui.setText('output', 'Error: ' + (data.error || 'Unknown error'));
+    ui.show('output');
+}
+
+// Script Execution
+async function runScript(script) {
+    const pdfFile = ui.getValue('pdf_file');
+    const pageNum = ui.getValue('page_num');
+    const adjust = document.getElementById('adjust').checked;
+
+    if (!pdfFile) {
+        alert('Please select a PDF file');
+        return;
+    }
+
+    // Disable button and show status
+    ui.disable(`${script}-btn`);
+    ui.setHtml(`${script}-status`, '<div class="loader"></div><span class="working">Starting...</span>');
+    ui.show(`${script}-status`);
+    ui.hide('output');
+
+    // Reset outputs for analyzer
+    if (script === 'analyzer') {
+        ui.hide('image-container');
+        ui.hide('extracted-images-container');
+        appState.generatedOutputs = { visualizer: null, extractor: false };
+        ui.disable('visualizer-btn');
+        ui.disable('extractor-btn');
+        updateProgress(0);
+    }
+
+    // Create form data
+    const formData = new FormData();
+    formData.append('pdf_file', pdfFile);
+    formData.append('page_num', pageNum);
+    formData.append('adjust', adjust);
+
+    try {
+        const data = await api.post(`/run-${script}`, formData);
+
+        if (data.success && data.task_id) {
+            appState.activeTasks[data.task_id] = {
+                type: script,
+                pageNum: pageNum
+            };
+            startPolling();
+
+            ui.setText('output', data.message || 'Task started, please wait...');
+            ui.show('output');
+        } else {
+            throw new Error(data.error || 'Failed to start task');
+        }
+    } catch (error) {
+        ui.setHtml(`${script}-status`, '<span class="error">✗ ' + error.message + '</span>');
+        ui.enable(`${script}-btn`);
+        ui.setText('output', 'Error: ' + error.message);
+        ui.show('output');
+    }
+}
+
+// Image Gallery Functions
+async function loadExtractedImages() {
+    const imageGallery = document.getElementById('extracted-images-gallery');
+
+    try {
+        const response = await fetch('/results/pictures/index.html');
+        if (!response.ok) throw new Error('No extracted images found');
+
+        const html = await response.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const imageCards = doc.querySelectorAll('.picture-card');
+
+        if (imageCards.length === 0) {
+            imageGallery.innerHTML = '<div class="no-images">No images were extracted from this page.</div>';
+            return;
+        }
+
+        let galleryHTML = '';
+        imageCards.forEach((card, index) => {
+            const img = card.querySelector('img');
+            const caption = card.querySelector('.picture-caption');
+            const coords = card.querySelector('.picture-coords');
+
+            if (img) {
+                const imgSrc = img.getAttribute('src');
+                const pictureId = index + 1;
+                const captionText = caption ? caption.textContent : '';
+                const coordsText = coords ? coords.textContent : '';
+
+                galleryHTML += `
+                    <div class="extracted-image-card">
+                        <div class="image-wrapper">
+                            <img src="/results/pictures/${imgSrc}" alt="Extracted Image ${pictureId}" 
+                                 onclick="openImageModal('/results/pictures/${imgSrc}', '${captionText}', '${coordsText}')">
+                        </div>
+                        <div class="image-info">
+                            <h4>Picture ${pictureId}</h4>
+                            ${captionText ? `<p class="image-caption">${captionText}</p>` : ''}
+                            <p class="image-coords">${coordsText}</p>
+                        </div>
+                    </div>
+                `;
+            }
+        });
+
+        imageGallery.innerHTML = galleryHTML;
+        ui.show('extracted-images-container');
+        appState.generatedOutputs.extractor = true;
+    } catch (error) {
+        console.log('No extracted images found:', error);
+        imageGallery.innerHTML = '<div class="no-images">No images have been extracted yet. Run the image extraction first.</div>';
+        appState.generatedOutputs.extractor = false;
+    }
+}
+
+// Modal Functions
 function openImageModal(imageSrc, caption, coords) {
-    // Create modal if it doesn't exist
     let modal = document.getElementById('image-modal');
     if (!modal) {
         modal = document.createElement('div');
@@ -205,403 +355,123 @@ function openImageModal(imageSrc, caption, coords) {
         document.body.appendChild(modal);
     }
 
-    // Set image and info
     document.getElementById('modal-image').src = imageSrc;
-    document.getElementById('modal-caption').textContent = caption;
-    document.getElementById('modal-coords').textContent = coords;
-
-    // Show modal
+    ui.setText('modal-caption', caption);
+    ui.setText('modal-coords', coords);
     modal.classList.add('active');
 }
 
-// Close image modal
 function closeImageModal() {
     const modal = document.getElementById('image-modal');
-    if (modal) {
-        modal.classList.remove('active');
-    }
+    if (modal) modal.classList.remove('active');
 }
 
-// Load PDF files on page load
-window.addEventListener('DOMContentLoaded', function() {
-    const pdfStatus = document.getElementById('pdf-load-status');
-    pdfStatus.innerHTML = '<div class="loader"></div> Loading PDF files...';
-
-    fetch('/pdf-files')
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('Failed to load PDF files');
-            }
-            return response.json();
-        })
-        .then(data => {
-            const select = document.getElementById('pdf_file');
-            if (data.length === 0) {
-                pdfStatus.innerHTML = '<span class="error">No PDF files found in the current directory</span>';
-                return;
-            }
-
-            data.forEach(file => {
-                const option = document.createElement('option');
-                option.value = file;
-                option.textContent = file;
-                select.appendChild(option);
-            });
-            pdfStatus.innerHTML = '<span class="success">Loaded ' + data.length + ' PDF files</span>';
-        })
-        .catch(error => {
-            console.error('Error loading PDFs:', error);
-            pdfStatus.innerHTML = '<span class="error">Error: ' + error.message + '</span>';
-        });
-
-    // Add event listeners for PDF selection and page number changes
-    document.getElementById('pdf_file').addEventListener('change', loadPDFPreview);
-    document.getElementById('page_num').addEventListener('change', loadPDFPreview);
-
-    // Add event listener for preview page input (if it exists)
-    const previewPageInput = document.getElementById('preview-page-input');
-    if (previewPageInput) {
-        previewPageInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                goToPreviewPage();
-            }
-        });
-    }
-
-    // Run an environment check on startup
-    checkEnvironment();
-
-    // Try to load any existing extracted images
-    loadExtractedImages();
-
-    // Check if there's an existing visualization
-    fetch('/results/visualization_page_1.png')
-        .then(response => {
-            if (response.ok) {
-                generatedOutputs.visualizer = '/results/visualization_page_1.png';
-            }
-        })
-        .catch(() => {
-            // No existing visualization
-        });
-});
-
-// Check the environment
-function checkEnvironment() {
+// Environment Check
+async function checkEnvironment() {
     const envDiv = document.getElementById('environment-check');
     const envDetails = document.getElementById('env-details');
 
-    envDiv.classList.remove('hidden');
-    envDetails.innerHTML = '<div class="loader"></div> Checking environment...';
+    ui.show('environment-check');
+    ui.setHtml('env-details', '<div class="loader"></div> Checking environment...');
 
-    fetch('/check-environment')
-        .then(response => response.json())
-        .then(data => {
-            let html = '<ul>';
+    try {
+        const data = await api.get('/check-environment');
 
-            // Current working directory
-            html += '<li>Working directory: <code>' + data.cwd + '</code></li>';
+        let html = '<ul>';
+        html += `<li>Working directory: <code>${data.cwd}</code></li>`;
+        html += `<li>Python version: <code>${data.python_version}</code></li>`;
 
-            // Python version
-            html += '<li>Python version: <code>' + data.python_version + '</code></li>';
+        if (data.missing_scripts.length === 0) {
+            html += '<li class="env-success">✓ All required scripts found</li>';
+        } else {
+            html += `<li class="env-error">✗ Missing scripts: <code>${data.missing_scripts.join(', ')}</code></li>`;
+        }
 
-            // Required scripts check
-            if (data.missing_scripts.length === 0) {
-                html += '<li class="env-success">✓ All required scripts found</li>';
-            } else {
-                html += '<li class="env-error">✗ Missing scripts: <code>' + data.missing_scripts.join(', ') + '</code></li>';
-            }
+        if (data.pdf_files.length > 0) {
+            html += `<li class="env-success">✓ Found ${data.pdf_files.length} PDF files</li>`;
+        } else {
+            html += '<li class="env-error">✗ No PDF files found in the working directory</li>';
+        }
 
-            // PDF files check
-            if (data.pdf_files.length > 0) {
-                html += '<li class="env-success">✓ Found ' + data.pdf_files.length + ' PDF files: <code>' + data.pdf_files.join(', ') + '</code></li>';
-            } else {
-                html += '<li class="env-error">✗ No PDF files found in the working directory</li>';
-            }
-
-            // Results directory check
-            if (data.results_dir_exists) {
-                html += '<li class="env-success">✓ Results directory exists</li>';
-                if (data.results_dir_writable) {
-                    html += '<li class="env-success">✓ Results directory is writable</li>';
-                } else {
-                    html += '<li class="env-error">✗ Results directory is not writable</li>';
-                }
-
-                // Show files in results directory
-                if (data.results_files && data.results_files.length > 0) {
-                    html += '<li>Files in results directory: <code>' + data.results_files.join(', ') + '</code></li>';
-                }
-            } else {
-                html += '<li class="env-error">✗ Results directory does not exist</li>';
-            }
-
-            html += '</ul>';
-
-            // List of all files for debugging
-            html += '<details><summary>All files in directory (' + data.files.length + ' files)</summary><pre>' +
-                data.files.join('\n') + '</pre></details>';
-
-            envDetails.innerHTML = html;
-
-            // Also check debug-results endpoint
-            fetch('/debug-results')
-                .then(response => response.json())
-                .then(debugData => {
-                    html += '<details><summary>Results Directory Debug Info</summary><pre>' +
-                        JSON.stringify(debugData, null, 2) + '</pre></details>';
-                    envDetails.innerHTML = html;
-                })
-                .catch(error => {
-                    console.error('Error getting debug info:', error);
-                });
-        })
-        .catch(error => {
-            envDetails.innerHTML = '<div class="env-error">Error checking environment: ' + error.message + '</div>';
-        });
+        html += '</ul>';
+        ui.setHtml('env-details', html);
+    } catch (error) {
+        ui.setHtml('env-details', `<div class="env-error">Error checking environment: ${error.message}</div>`);
+    }
 }
 
-// Manual command execution for debugging
-function manuallyRunScript() {
-    const command = prompt("Enter command to run (e.g., 'python backend/page_treatment/analyzer.py --image document.pdf --page 1')");
+// Manual Command Execution
+async function manuallyRunScript() {
+    const command = prompt("Enter command to run:");
     if (!command) return;
 
     const outputDiv = document.getElementById('output');
-    outputDiv.textContent = 'Running command: ' + command + '\nPlease wait...';
-    outputDiv.classList.remove('hidden');
+    ui.setText('output', 'Running command: ' + command + '\nPlease wait...');
+    ui.show('output');
 
-    // Create form data
     const formData = new FormData();
     formData.append('command', command);
 
-    // Send the command directly to backend
-    fetch('/run-manual-command', {
-        method: 'POST',
-        body: formData
-    })
-        .then(response => response.json())
-        .then(data => {
-            outputDiv.textContent = 'Command: ' + command + '\n\n' +
-                (data.success ? 'Success!\n\n' : 'Failed!\n\n') +
-                (data.output || '') +
-                (data.error ? '\n\nError: ' + data.error : '');
-        })
-        .catch(error => {
-            outputDiv.textContent = 'Error running command: ' + error.message;
+    try {
+        const data = await api.post('/run-manual-command', formData);
+        ui.setText('output',
+            'Command: ' + command + '\n\n' +
+            (data.success ? 'Success!\n\n' : 'Failed!\n\n') +
+            (data.output || '') +
+            (data.error ? '\n\nError: ' + data.error : '')
+        );
+    } catch (error) {
+        ui.setText('output', 'Error running command: ' + error.message);
+    }
+}
+
+// Initialize Application
+window.addEventListener('DOMContentLoaded', async function() {
+    // Load PDF files
+    const pdfStatus = document.getElementById('pdf-load-status');
+    ui.setHtml('pdf-load-status', '<div class="loader"></div> Loading PDF files...');
+
+    try {
+        const data = await api.get('/pdf-files');
+        const select = document.getElementById('pdf_file');
+
+        if (data.length === 0) {
+            ui.setHtml('pdf-load-status', '<span class="error">No PDF files found</span>');
+            return;
+        }
+
+        data.forEach(file => {
+            const option = document.createElement('option');
+            option.value = file;
+            option.textContent = file;
+            select.appendChild(option);
         });
-}
 
-// Start polling for task updates
-function startPolling() {
-    if (pollingInterval) {
-        return; // Already polling
+        ui.setHtml('pdf-load-status', `<span class="success">Loaded ${data.length} PDF files</span>`);
+    } catch (error) {
+        ui.setHtml('pdf-load-status', '<span class="error">Error: ' + error.message + '</span>');
     }
 
-    pollingInterval = setInterval(pollTasks, 1000);
-}
+    // Add event listeners
+    document.getElementById('pdf_file').addEventListener('change', loadPDFPreview);
+    document.getElementById('page_num').addEventListener('change', loadPDFPreview);
 
-// Stop polling when no active tasks
-function checkAndStopPolling() {
-    if (Object.keys(activeTasks).length === 0 && pollingInterval) {
-        clearInterval(pollingInterval);
-        pollingInterval = null;
-    }
-}
-
-// Poll for task updates
-function pollTasks() {
-    for (const taskId in activeTasks) {
-        const taskInfo = activeTasks[taskId];
-
-        fetch(`/task-status/${taskId}`)
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Failed to check task status');
-                }
-                return response.json();
-            })
-            .then(data => {
-                // Update status display
-                const statusElement = document.getElementById(`${taskInfo.type}-status`);
-
-                if (data.done) {
-                    if (data.success) {
-                        // Task completed successfully
-                        statusElement.innerHTML = '<span class="success">✓ Completed successfully!</span>';
-                        statusElement.classList.remove('hidden');
-
-                        // Enable button
-                        document.getElementById(`${taskInfo.type}-btn`).disabled = false;
-
-                        // Display output
-                        const outputDiv = document.getElementById('output');
-                        outputDiv.textContent = data.output;
-                        outputDiv.classList.remove('hidden');
-
-                        // Show image if available for visualizer
-                        if (taskInfo.type === 'visualizer' && data.image_file) {
-                            // Fix: Ensure we're using the correct path format
-                            generatedOutputs.visualizer = '/' + data.image_file;
-                            const imagePath = generatedOutputs.visualizer + '?t=' + new Date().getTime();
-                            console.log('Loading visualization from:', imagePath);
-                            document.getElementById('result-image').src = imagePath;
-                            document.getElementById('image-container').classList.remove('hidden');
-                        }
-
-                        // Load extracted images if extractor completed
-                        if (taskInfo.type === 'extractor') {
-                            setTimeout(() => {
-                                loadExtractedImages();
-                            }, 1000); // Small delay to ensure files are written
-                        }
-
-                        // Enable next step button and update progress
-                        if (taskInfo.type === 'analyzer') {
-                            document.getElementById('visualizer-btn').disabled = false;
-                            updateProgress(1);
-                        } else if (taskInfo.type === 'visualizer') {
-                            document.getElementById('extractor-btn').disabled = false;
-                            updateProgress(2);
-                        } else if (taskInfo.type === 'extractor') {
-                            updateProgress(3);
-                        }
-
-                        // Remove from active tasks
-                        delete activeTasks[taskId];
-                        checkAndStopPolling();
-                    } else {
-                        // Task failed
-                        statusElement.innerHTML = '<span class="error">✗ Failed: ' + (data.error || 'Unknown error') + '</span>';
-                        statusElement.classList.remove('hidden');
-                        document.getElementById(`${taskInfo.type}-btn`).disabled = false;
-
-                        // Display error output
-                        const outputDiv = document.getElementById('output');
-                        outputDiv.textContent = 'Error: ' + (data.error || 'Unknown error');
-                        outputDiv.classList.remove('hidden');
-
-                        // Remove from active tasks
-                        delete activeTasks[taskId];
-                        checkAndStopPolling();
-                    }
-                } else {
-                    // Still running
-                    statusElement.innerHTML = '<div class="loader"></div><span class="working">Running...</span>';
-                    statusElement.classList.remove('hidden');
-                }
-            })
-            .catch(error => {
-                console.error('Error checking task status:', error);
-            });
-    }
-}
-
-function runScript(script) {
-    const pdfFile = document.getElementById('pdf_file').value;
-    const pageNum = document.getElementById('page_num').value;
-    const adjust = document.getElementById('adjust').checked;
-
-    if (!pdfFile) {
-        alert('Please select a PDF file');
-        return;
-    }
-
-    // Disable button
-    const button = document.getElementById(`${script}-btn`);
-    button.disabled = true;
-
-    // Create form data
-    const formData = new FormData();
-    formData.append('pdf_file', pdfFile);
-    formData.append('page_num', pageNum);
-    formData.append('adjust', adjust);
-
-    // Show running status
-    const statusElement = document.getElementById(`${script}-status`);
-    statusElement.innerHTML = '<div class="loader"></div><span class="working">Starting...</span>';
-    statusElement.classList.remove('hidden');
-
-    // Clear previous output
-    document.getElementById('output').classList.add('hidden');
-
-    // Don't hide content when switching between tabs
-    // Only hide when running a new analysis on the same tab
-    if (script === 'analyzer') {
-        // Reset everything when running analyzer
-        document.getElementById('image-container').classList.add('hidden');
-        document.getElementById('extracted-images-container').classList.add('hidden');
-        generatedOutputs.visualizer = null;
-        generatedOutputs.extractor = false;
-    }
-
-    // Determine endpoint
-    let endpoint;
-    switch(script) {
-        case 'analyzer':
-            endpoint = '/run-analyzer';
-            // Disable next step buttons
-            document.getElementById('visualizer-btn').disabled = true;
-            document.getElementById('extractor-btn').disabled = true;
-            updateProgress(0);
-            break;
-        case 'visualizer':
-            endpoint = '/run-visualizer';
-            // Disable next step button
-            document.getElementById('extractor-btn').disabled = true;
-            break;
-        case 'extractor':
-            endpoint = '/run-extractor';
-            break;
-    }
-
-    // Send request
-    fetch(endpoint, {
-        method: 'POST',
-        body: formData
-    })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('Failed to start task');
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.success && data.task_id) {
-                // Store task information
-                activeTasks[data.task_id] = {
-                    type: script,
-                    pageNum: pageNum
-                };
-
-                // Start polling for updates
-                startPolling();
-
-                // Update status
-                statusElement.innerHTML = '<div class="loader"></div><span class="working">Running...</span>';
-
-                // Show initial output
-                const outputDiv = document.getElementById('output');
-                outputDiv.textContent = data.message || 'Task started, please wait...';
-                outputDiv.classList.remove('hidden');
-            } else {
-                // Failed to start task
-                statusElement.innerHTML = '<span class="error">✗ Failed to start task</span>';
-                button.disabled = false;
-
-                // Show error
-                const outputDiv = document.getElementById('output');
-                outputDiv.textContent = 'Error: ' + (data.error || 'Failed to start task');
-                outputDiv.classList.remove('hidden');
-            }
-        })
-        .catch(error => {
-            console.error('Error starting task:', error);
-            statusElement.innerHTML = '<span class="error">✗ ' + error.message + '</span>';
-            button.disabled = false;
-
-            // Show error
-            const outputDiv = document.getElementById('output');
-            outputDiv.textContent = 'Error: ' + error.message;
-            outputDiv.classList.remove('hidden');
+    const previewPageInput = document.getElementById('preview-page-input');
+    if (previewPageInput) {
+        previewPageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') goToPreviewPage();
         });
-}
+    }
+
+    // Initial checks
+    checkEnvironment();
+    loadExtractedImages();
+
+    // Check for existing visualization
+    try {
+        const response = await fetch('/results/visualization_page_1.png');
+        if (response.ok) {
+            appState.generatedOutputs.visualizer = '/results/visualization_page_1.png';
+        }
+    } catch {}
+});
