@@ -1,13 +1,16 @@
 from flask import Flask, request, send_file, jsonify, Response
 import subprocess
 import os
+import sys
 import time
 import threading
 import logging
 from pathlib import Path
-import sys
 import uuid
 import pdf2image
+
+# Add the parent directory to Python path to allow imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Configure logging
 logging.basicConfig(level=logging.INFO,
@@ -15,8 +18,10 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger(__name__)
 
 # Initialize Flask app with frontend folder structure
+# Frontend is in the parent directory
+frontend_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'frontend')
 app = Flask(__name__,
-            static_folder='frontend/static',
+            static_folder=os.path.join(frontend_path, 'static'),
             static_url_path='/static')
 
 # Dictionary to store background task results
@@ -24,7 +29,7 @@ task_results = {}
 
 # Import batch processor if available
 try:
-    from batch_processor import start_batch_processing, get_batch_processor, cleanup_old_batches
+    from backend.batch_treatment.batch_processor import start_batch_processing, get_batch_processor, cleanup_old_batches
     batch_processing_available = True
 except ImportError:
     logger.warning("batch_processor.py not found. Batch processing features will be disabled.")
@@ -32,14 +37,18 @@ except ImportError:
 
 # Ensure results folder exists
 def ensure_results_folder():
-    results_dir = Path("results")
+    # Always create results folder relative to where app.py is run from
+    results_dir = Path.cwd() / "results"
     if not results_dir.exists():
         results_dir.mkdir()
+        logger.info(f"Created results directory at: {results_dir.absolute()}")
+    else:
+        logger.info(f"Results directory exists at: {results_dir.absolute()}")
     return results_dir
 
 # Ensure frontend folders exist
 def ensure_frontend_folders():
-    frontend_dir = Path("frontend")
+    frontend_dir = Path(frontend_path)
     if not frontend_dir.exists():
         frontend_dir.mkdir()
         logger.info(f"Created frontend directory: {frontend_dir}")
@@ -53,16 +62,16 @@ def ensure_frontend_folders():
 
 @app.route('/')
 def index():
-    return send_file('frontend/index.html')
+    return send_file(os.path.join(frontend_path, 'index.html'))
 
 @app.route('/batch')
 def batch_interface():
     """Serve the batch processing interface"""
-    return send_file('frontend/batch.html')
+    return send_file(os.path.join(frontend_path, 'batch.html'))
 
 @app.route('/static/<path:filename>')
 def serve_static(filename):
-    return send_file(os.path.join('frontend/static', filename))
+    return send_file(os.path.join(frontend_path, 'static', filename))
 
 @app.route('/pdf-files')
 def pdf_files():
@@ -123,19 +132,22 @@ def run_command(task_id, command):
         current_dir = os.getcwd()
         logger.info(f"Current working directory: {current_dir}")
 
-        # Check if the script exists
-        script_name = command.split()[1]
-        if not os.path.exists(script_name):
-            logger.error(f"Script not found: {script_name} in {current_dir}")
+        # The command already contains the full path, so we just need to verify it exists
+        script_parts = command.split()
+        script_path = script_parts[1]
+
+        if not os.path.exists(script_path):
+            logger.error(f"Script not found: {script_path} in {current_dir}")
             task_results[task_id] = {
                 'success': False,
-                'error': f"Script not found: {script_name}. Make sure all scripts are in the same directory as app.py.",
+                'error': f"Script not found: {script_path}. Make sure all scripts are in the correct directory.",
                 'done': True
             }
             return
 
         # Run the command with more detailed error capture
         # Important: Use pipe input to automatically answer "n" to the prompt
+        # Make sure we run from the project root directory
         process = subprocess.Popen(
             command,
             shell=True,
@@ -143,7 +155,8 @@ def run_command(task_id, command):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            universal_newlines=True
+            universal_newlines=True,
+            cwd=os.getcwd()  # Explicitly set working directory to current directory
         )
 
         # Send "n" to the process to bypass the "process all pages" prompt
@@ -198,13 +211,14 @@ def run_analyzer():
             logger.error(f"PDF file not found: {pdf_file}")
             return jsonify({'success': False, 'error': f'PDF file not found: {pdf_file}'}), 400
 
-        # Check if analyzer.py exists
-        if not os.path.exists('analyzer.py'):
-            logger.error("analyzer.py not found in current directory")
-            return jsonify({'success': False, 'error': 'analyzer.py not found in current directory'}), 500
+        # Check if analyzer.py exists in the new location
+        analyzer_path = os.path.join('backend', 'page_treatment', 'analyzer.py')
+        if not os.path.exists(analyzer_path):
+            logger.error(f"analyzer.py not found at: {analyzer_path}")
+            return jsonify({'success': False, 'error': 'analyzer.py not found in backend/page_treatment directory'}), 500
 
         # Add the --all-pages=false flag or explicitly specify the page to avoid the prompt
-        command = f"python analyzer.py --image {pdf_file} --page {page_num} --start-page {page_num} --end-page {page_num}"
+        command = f"python backend/page_treatment/analyzer.py --image {pdf_file} --page {page_num} --start-page {page_num} --end-page {page_num}"
 
         # Generate a task ID
         task_id = f"analyzer_{int(time.time())}"
@@ -238,15 +252,40 @@ def task_status(task_id):
     if task_id not in task_results:
         return jsonify({'success': False, 'error': 'Task not found'}), 404
 
-    result = task_results[task_id]
+    result = task_results[task_id].copy()  # Make a copy to avoid modifying the original
 
-    # If task is completed, add file paths
+    # If task is completed, add file paths and verify they exist
     if result['done'] and result['success']:
         if task_id.startswith('analyzer_'):
-            result['doctags_file'] = f"results/output.doctags.txt"
+            doctags_path = Path("results") / "output.doctags.txt"
+            if doctags_path.exists():
+                result['doctags_file'] = "results/output.doctags.txt"
+            else:
+                logger.warning(f"DocTags file not found: {doctags_path}")
+
         elif task_id.startswith('visualizer_'):
             page_num = task_id.split('_')[-1] if len(task_id.split('_')) > 2 else "1"
-            result['image_file'] = f"results/visualization_page_{page_num}.png"
+            viz_filename = f"visualization_page_{page_num}.png"
+
+            # Check multiple possible locations
+            possible_paths = [
+                Path("results") / viz_filename,
+                Path.cwd() / "results" / viz_filename,
+                Path(__file__).parent.parent / "results" / viz_filename
+            ]
+
+            for path in possible_paths:
+                if path.exists():
+                    result['image_file'] = f"results/{viz_filename}"
+                    logger.info(f"Found visualization at: {path}")
+                    break
+            else:
+                logger.error(f"Visualization file not found in any location for page {page_num}")
+                # Log what files exist in results
+                results_dir = Path("results")
+                if results_dir.exists():
+                    files = list(results_dir.glob("*.png"))
+                    logger.info(f"PNG files in results: {[f.name for f in files[:5]]}")
 
     return jsonify(result)
 
@@ -260,7 +299,7 @@ def run_visualizer():
         if not pdf_file:
             return jsonify({'success': False, 'error': 'PDF file not specified'}), 400
 
-        command = f"python visualizer.py --doctags results/output.doctags.txt --pdf {pdf_file} --page {page_num}"
+        command = f"python backend/page_treatment/visualizer.py --doctags results/output.doctags.txt --pdf {pdf_file} --page {page_num}"
         if adjust:
             command += " --adjust"
 
@@ -298,7 +337,7 @@ def run_extractor():
         if not pdf_file:
             return jsonify({'success': False, 'error': 'PDF file not specified'}), 400
 
-        command = f"python picture_extractor.py --doctags results/output.doctags.txt --pdf {pdf_file} --page {page_num}"
+        command = f"python backend/page_treatment/picture_extractor.py --doctags results/output.doctags.txt --pdf {pdf_file} --page {page_num}"
         if adjust:
             command += " --adjust"
 
@@ -329,14 +368,28 @@ def run_extractor():
 @app.route('/results/<path:filename>')
 def results(filename):
     try:
-        file_path = os.path.join('results', filename)
-        if os.path.exists(file_path):
-            return send_file(file_path)
+        # Always use the results directory relative to current working directory
+        results_dir = Path.cwd() / "results"
+        file_path = results_dir / filename
+
+        logger.info(f"Requested file: {filename}")
+        logger.info(f"Looking for file at: {file_path.absolute()}")
+        logger.info(f"File exists: {file_path.exists()}")
+
+        if file_path.exists() and file_path.is_file():
+            logger.info(f"Serving file: {file_path}")
+            return send_file(str(file_path.absolute()))
         else:
             logger.error(f"File not found: {file_path}")
+            # List what files ARE in the results directory
+            if results_dir.exists():
+                files = list(results_dir.glob("*"))
+                logger.info(f"Files in results directory: {[f.name for f in files[:10]]}")
             return jsonify({'error': f"File not found: {filename}"}), 404
     except Exception as e:
         logger.error(f"Error serving file {filename}: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return jsonify({'error': f"Error serving file: {filename}"}), 500
 
 @app.route('/pdf-preview/<pdf_file>/<int:page_num>')
@@ -405,9 +458,15 @@ def check_environment():
         # List all files in directory
         files = os.listdir('.')
 
-        # Check for required scripts
+        # Check for required scripts in new location
+        backend_page_dir = os.path.join('backend', 'page_treatment')
         required_scripts = ['analyzer.py', 'visualizer.py', 'picture_extractor.py']
-        missing_scripts = [script for script in required_scripts if script not in files]
+        missing_scripts = []
+
+        for script in required_scripts:
+            script_path = os.path.join(backend_page_dir, script)
+            if not os.path.exists(script_path):
+                missing_scripts.append(script)
 
         # Check for PDFs
         pdf_files = [f for f in files if f.endswith('.pdf')]
@@ -415,6 +474,7 @@ def check_environment():
         # Check for results directory
         results_dir = Path("results")
         results_dir_exists = results_dir.exists()
+        results_files = []
 
         # Try to check Python version and installed packages
         python_info = subprocess.run(['python', '--version'], capture_output=True, text=True)
@@ -429,6 +489,9 @@ def check_environment():
                     f.write("test")
                 os.remove(test_file)
                 results_writable = True
+
+                # List files in results directory
+                results_files = [f.name for f in results_dir.iterdir() if f.is_file()][:20]  # Limit to 20 files
             except:
                 pass
 
@@ -439,6 +502,7 @@ def check_environment():
             'pdf_files': pdf_files,
             'results_dir_exists': results_dir_exists,
             'results_dir_writable': results_writable,
+            'results_files': results_files,
             'python_version': python_version,
             'batch_processing_available': batch_processing_available
         })
@@ -459,6 +523,12 @@ def run_manual_command():
             return jsonify({'success': False, 'error': 'No command specified'}), 400
 
         logger.info(f"Running manual command: {command}")
+
+        # Update paths in manual commands to use backend directory only if not already present
+        if 'backend/page_treatment/' not in command:
+            command = command.replace('analyzer.py', 'backend/page_treatment/analyzer.py')
+            command = command.replace('visualizer.py', 'backend/page_treatment/visualizer.py')
+            command = command.replace('picture_extractor.py', 'backend/page_treatment/picture_extractor.py')
 
         try:
             # Run the command synchronously for immediate feedback
@@ -765,6 +835,45 @@ def open_results_folder():
     except Exception as e:
         logger.error(f"Error opening results folder: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/debug-results')
+def debug_results():
+    """Debug endpoint to check results directory"""
+    try:
+        results_info = {
+            'cwd': os.getcwd(),
+            'results_paths_checked': []
+        }
+
+        # Check multiple possible results locations
+        possible_results_dirs = [
+            Path("results"),
+            Path.cwd() / "results",
+            Path(__file__).parent.parent / "results"
+        ]
+
+        for results_dir in possible_results_dirs:
+            dir_info = {
+                'path': str(results_dir),
+                'absolute_path': str(results_dir.absolute()),
+                'exists': results_dir.exists(),
+                'files': []
+            }
+
+            if results_dir.exists():
+                try:
+                    # List all files in the directory
+                    files = list(results_dir.glob("*"))
+                    dir_info['files'] = [f.name for f in files if f.is_file()][:20]  # Limit to 20 files
+                except Exception as e:
+                    dir_info['error'] = str(e)
+
+            results_info['results_paths_checked'].append(dir_info)
+
+        return jsonify(results_info)
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 # Cleanup task for batch processors
 def cleanup_task():

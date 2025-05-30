@@ -31,6 +31,128 @@
     --spacing-lg: 24px;
     --spacing-xl: 32px;
 }
+/* Professional Enterprise Title Styles - Add this after the :root variables in styles.css */
+
+/* Enterprise Style Title */
+.title-enterprise {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    margin-bottom: 48px;
+    padding-top: 16px;
+}
+
+.title-enterprise .brand-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    background: var(--surface-white);
+    border-radius: 16px;
+    box-shadow: var(--shadow-lg);
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.title-enterprise .brand-icon::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: linear-gradient(45deg, var(--accent-mint) 0%, transparent 70%);
+    transform: rotate(45deg);
+}
+
+.title-enterprise .brand-icon svg {
+    width: 36px;
+    height: 36px;
+    fill: var(--primary-dark);
+    position: relative;
+    z-index: 1;
+}
+
+.title-enterprise .brand-text {
+    text-align: left;
+}
+
+.title-enterprise h1 {
+    font-size: 2.25rem;
+    font-weight: 600;
+    color: var(--primary-dark);
+    margin: 0 0 4px 0;
+    letter-spacing: -0.025em;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    line-height: 1.2;
+}
+
+.title-enterprise .pro-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    background: var(--accent-amber);
+    color: var(--primary-dark);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    border-radius: 6px;
+    text-transform: uppercase;
+    line-height: 1;
+}
+
+.title-enterprise .tagline {
+    font-size: 1rem;
+    color: var(--text-medium);
+    font-weight: 400;
+    margin: 0;
+    letter-spacing: 0.01em;
+}
+
+/* Update the old h1 styles to remove conflicts */
+body > .container > h1 {
+    display: none; /* Hide if there's still an old h1 */
+}
+
+/* Responsive adjustments for the title */
+@media (max-width: 768px) {
+    .title-enterprise {
+        flex-direction: column;
+        text-align: center;
+        gap: 16px;
+        margin-bottom: 32px;
+    }
+
+    .title-enterprise .brand-text {
+        text-align: center;
+    }
+
+    .title-enterprise h1 {
+        font-size: 1.75rem;
+        flex-direction: column;
+        gap: 8px;
+        align-items: center;
+    }
+
+    .title-enterprise .brand-icon {
+        width: 56px;
+        height: 56px;
+    }
+
+    .title-enterprise .brand-icon svg {
+        width: 32px;
+        height: 32px;
+    }
+
+    .title-enterprise .tagline {
+        font-size: 0.9rem;
+    }
+}
 
 * {
     box-sizing: border-box;
@@ -844,4 +966,5 @@ button:disabled {
         font-size: 0.8rem;
         padding: var(--spacing-xs) var(--spacing-sm);
     }
+
 }

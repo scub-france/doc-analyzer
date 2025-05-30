@@ -327,6 +327,11 @@ function checkEnvironment() {
                 } else {
                     html += '<li class="env-error">✗ Results directory is not writable</li>';
                 }
+
+                // Show files in results directory
+                if (data.results_files && data.results_files.length > 0) {
+                    html += '<li>Files in results directory: <code>' + data.results_files.join(', ') + '</code></li>';
+                }
             } else {
                 html += '<li class="env-error">✗ Results directory does not exist</li>';
             }
@@ -338,6 +343,18 @@ function checkEnvironment() {
                 data.files.join('\n') + '</pre></details>';
 
             envDetails.innerHTML = html;
+
+            // Also check debug-results endpoint
+            fetch('/debug-results')
+                .then(response => response.json())
+                .then(debugData => {
+                    html += '<details><summary>Results Directory Debug Info</summary><pre>' +
+                        JSON.stringify(debugData, null, 2) + '</pre></details>';
+                    envDetails.innerHTML = html;
+                })
+                .catch(error => {
+                    console.error('Error getting debug info:', error);
+                });
         })
         .catch(error => {
             envDetails.innerHTML = '<div class="env-error">Error checking environment: ' + error.message + '</div>';
@@ -346,7 +363,7 @@ function checkEnvironment() {
 
 // Manual command execution for debugging
 function manuallyRunScript() {
-    const command = prompt("Enter command to run (e.g., 'python analyzer.py --image document.pdf --page 1')");
+    const command = prompt("Enter command to run (e.g., 'python backend/page_treatment/analyzer.py --image document.pdf --page 1')");
     if (!command) return;
 
     const outputDiv = document.getElementById('output');
@@ -423,8 +440,11 @@ function pollTasks() {
 
                         // Show image if available for visualizer
                         if (taskInfo.type === 'visualizer' && data.image_file) {
+                            // Fix: Ensure we're using the correct path format
                             generatedOutputs.visualizer = '/' + data.image_file;
-                            document.getElementById('result-image').src = generatedOutputs.visualizer + '?t=' + new Date().getTime();
+                            const imagePath = generatedOutputs.visualizer + '?t=' + new Date().getTime();
+                            console.log('Loading visualization from:', imagePath);
+                            document.getElementById('result-image').src = imagePath;
                             document.getElementById('image-container').classList.remove('hidden');
                         }
 

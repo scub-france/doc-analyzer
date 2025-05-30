@@ -28,10 +28,17 @@ from docling_core.types.doc.document import DocTagsDocument, DoclingDocument
 
 def ensure_results_folder():
     """Create the results folder if it doesn't exist."""
-    results_dir = Path("results")
+    # Get the project root directory (where the script is called from)
+    # Since we're in backend/page_treatment/, we need to go up to the root
+    script_dir = Path(__file__).parent
+    project_root = script_dir.parent.parent  # Go up two levels from backend/page_treatment/
+    results_dir = project_root / "results"
+
     if not results_dir.exists():
-        results_dir.mkdir()
+        results_dir.mkdir(parents=True)
         print(f"Created results directory: {results_dir}")
+
+    print(f"Using results directory: {results_dir.absolute()}")
     return results_dir
 
 

@@ -5,6 +5,7 @@ Handles batch processing of PDF documents with parallel processing support
 """
 
 import os
+import sys
 import json
 import time
 import threading
@@ -16,6 +17,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import subprocess
 import shutil
 import zipfile
+
+# Add the parent directory to Python path to allow imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 # Configure logging
 logging.basicConfig(
@@ -172,8 +176,9 @@ class BatchProcessor:
             # Use standard results directory for analyzer output
             output_base = Path("results") / f"output"
 
+            # Update path to use backend directory
             command = [
-                "python", "analyzer.py",
+                "python", "backend/page_treatment/analyzer.py",
                 "--image", self.pdf_file,
                 "--page", str(page_num),
                 "--output", str(output_base),
@@ -224,8 +229,9 @@ class BatchProcessor:
             if page_doctags.exists():
                 shutil.copy2(page_doctags, doctags_path)
 
+            # Update path to use backend directory
             command = [
-                "python", "visualizer.py",
+                "python", "backend/page_treatment/visualizer.py",
                 "--doctags", str(doctags_path),
                 "--pdf", self.pdf_file,
                 "--page", str(page_num)
@@ -272,9 +278,9 @@ class BatchProcessor:
             if page_doctags.exists():
                 shutil.copy2(page_doctags, doctags_path)
 
-            # Let extractor create files in its default location first
+            # Update path to use backend directory
             command = [
-                "python", "picture_extractor.py",
+                "python", "backend/page_treatment/picture_extractor.py",
                 "--doctags", str(doctags_path),
                 "--pdf", self.pdf_file,
                 "--page", str(page_num)

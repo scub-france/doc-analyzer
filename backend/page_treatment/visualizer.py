@@ -4,7 +4,7 @@ DocTags Zone Visualizer - Simple script to visualize zones identified in DocTags
 PNG-only version: Creates debug images with rectangles around zones.
 
 Usage:
-    python visualizer_png_only.py --doctags output.doctags.txt --pdf document.pdf --page 8
+    python visualizer.py --doctags output.doctags.txt --pdf document.pdf --page 8
 """
 
 import argparse
@@ -20,10 +20,17 @@ LOC_PATTERN = r'<loc_(\d+)><loc_(\d+)><loc_(\d+)><loc_(\d+)>'
 
 def ensure_results_folder():
     """Create the results folder if it doesn't exist."""
-    results_dir = Path("results")
+    # Get the project root directory (where the script is called from)
+    # Since we're in backend/page_treatment/, we need to go up to the root
+    script_dir = Path(__file__).parent
+    project_root = script_dir.parent.parent  # Go up two levels from backend/page_treatment/
+    results_dir = project_root / "results"
+
     if not results_dir.exists():
-        results_dir.mkdir()
+        results_dir.mkdir(parents=True)
         print(f"Created results directory: {results_dir}")
+
+    print(f"Using results directory: {results_dir.absolute()}")
     return results_dir
 
 def parse_arguments():
@@ -227,6 +234,7 @@ def create_debug_image(image, zones, page_num, output_path):
     # Save the debug image
     debug_img.save(output_path)
     print(f"Debug image saved to: {output_path}")
+    print(f"Absolute path: {output_path.absolute()}")
 
     return debug_img
 
@@ -269,6 +277,9 @@ def process_page(pdf_path, page_num, doctags_path, output_path, dpi=200, scale=1
     if output_path is None:
         output_name = f"visualization_page_{page_num}.png"
         output_path = results_dir / output_name
+
+    # Make sure output_path is a Path object
+    output_path = Path(output_path)
 
     # Load the page image
     try:
@@ -372,9 +383,6 @@ def process_all_pages(pdf_path, doctags_path, output_base, dpi=200, scale=1.0, s
     return True
 
 def main():
-    # Ensure results folder exists
-    ensure_results_folder()
-
     # Parse arguments
     args = parse_arguments()
 
