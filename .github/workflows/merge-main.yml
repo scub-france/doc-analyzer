@@ -1,0 +1,30 @@
+name: Build and Push Docker image to GHCR
+
+on:
+  push:
+    branches: [ integrate-ci ]
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Extract repo name
+        id: meta
+        run: echo "REPO=${GITHUB_REPOSITORY#*/}" >> $GITHUB_ENV
+
+      - name: Build Docker image
+        run: docker build -t ghcr.io/${{ github.repository_owner }}/$REPO:latest .
+
+      - name: Push Docker image
+        run: docker push ghcr.io/${{ github.repository_owner }}/$REPO:latest
