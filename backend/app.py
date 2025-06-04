@@ -536,6 +536,220 @@ if batch_processing_available:
         state['logs'] = state['logs'][-20:]  # Last 20 logs only
         return jsonify(state)
 
+
+# Add these routes to your app.py file after the other batch processing endpoints
+
+@app.route('/batch-report/<batch_id>')
+def batch_report(batch_id):
+    """Serve the batch processing report HTML"""
+    try:
+        processor = get_batch_processor(batch_id)
+        if not processor:
+            # Try to find existing report even if processor is gone
+            report_path = ensure_results_folder() / f"batch_{batch_id}" / "report.html"
+            if report_path.exists():
+                return send_file(report_path)
+            else:
+                return jsonify({'error': 'Batch report not found'}), 404
+
+        # Check if report exists
+        report_path = processor.results_dir / "report.html"
+        if not report_path.exists():
+            # Generate report if it doesn't exist
+            processor.generate_report()
+
+        return send_file(report_path)
+
+    except Exception as e:
+        logger.error(f"Error serving batch report: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/batch-report-image/<batch_id>/<image_name>')
+def batch_report_image(batch_id, image_name):
+    """Serve images from batch report directory"""
+    try:
+        image_path = ensure_results_folder() / f"batch_{batch_id}" / image_name
+
+        if not image_path.exists():
+            return jsonify({'error': 'Image not found'}), 404
+
+        return send_file(image_path)
+
+    except Exception as e:
+        logger.error(f"Error serving batch image: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/pause-batch/<batch_id>', methods=['POST'])
+def pause_batch(batch_id):
+    """Pause a batch processing job"""
+    try:
+        processor = get_batch_processor(batch_id)
+        if not processor:
+            return jsonify({'error': 'Batch not found'}), 404
+
+        processor.pause()
+        return jsonify({'success': True})
+
+    except Exception as e:
+        logger.error(f"Error pausing batch: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/resume-batch/<batch_id>', methods=['POST'])
+def resume_batch(batch_id):
+    """Resume a batch processing job"""
+    try:
+        processor = get_batch_processor(batch_id)
+        if not processor:
+            return jsonify({'error': 'Batch not found'}), 404
+
+        processor.resume()
+        return jsonify({'success': True})
+
+    except Exception as e:
+        logger.error(f"Error resuming batch: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/cancel-batch/<batch_id>', methods=['POST'])
+def cancel_batch(batch_id):
+    """Cancel a batch processing job"""
+    try:
+        processor = get_batch_processor(batch_id)
+        if not processor:
+            return jsonify({'error': 'Batch not found'}), 404
+
+        processor.cancel()
+        return jsonify({'success': True})
+
+    except Exception as e:
+        logger.error(f"Error cancelling batch: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/download-batch-results/<batch_id>')
+def download_batch_results(batch_id):
+    """Download batch results as ZIP"""
+    try:
+        processor = get_batch_processor(batch_id)
+        if not processor:
+            # Try to find existing results
+            batch_dir = ensure_results_folder() / f"batch_{batch_id}"
+            if not batch_dir.exists():
+                return jsonify({'error': 'Batch results not found'}), 404
+
+            # Create a temporary processor just for zipping
+            class TempProcessor:
+                def __init__(self, batch_id):
+                    self.batch_id = batch_id
+                    self.results_dir = batch_dir
+
+                def create_zip_archive(self):
+                    import zipfile
+                    zip_path = self.results_dir / f"batch_results_{self.batch_id}.zip"
+                    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                        for file_path in self.results_dir.rglob('*'):
+                            if file_path.is_file() and file_path != zip_path:
+                                arcname = file_path.relative_to(self.results_dir)
+                                zipf.write(file_path, arcname)
+                    return zip_path
+
+            processor = TempProcessor(batch_id)
+
+        # Create ZIP archive
+        zip_path = processor.create_zip_archive()
+        if not zip_path or not zip_path.exists():
+            return jsonify({'error': 'Failed to create ZIP archive'}), 500
+
+        return send_file(
+            zip_path,
+            as_attachment=True,
+            download_name=f"doctags_batch_{batch_id}.zip"
+        )
+
+    except Exception as e:
+        logger.error(f"Error downloading batch results: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/retry-page', methods=['POST'])
+def retry_page():
+    """Retry processing a failed page"""
+    try:
+        pdf_file = request.form.get('pdf_file')
+        page_num = int(request.form.get('page_num'))
+        adjust = request.form.get('adjust') == 'true'
+
+        if not pdf_file or not os.path.exists(pdf_file):
+            return jsonify({'success': False, 'error': 'Invalid PDF file'}), 400
+
+        # Run the three processing steps
+        results = {'success': True, 'errors': []}
+
+        # Step 1: Analyzer
+        command = (f"python backend/page_treatment/analyzer.py --image {pdf_file} "
+                   f"--page {page_num} --start-page {page_num} --end-page {page_num}")
+        success, stdout, stderr = run_command_with_timeout(command, 60)
+        if not success:
+            results['errors'].append(f"Analyzer: {stderr}")
+            results['success'] = False
+
+        # Step 2: Visualizer (only if analyzer succeeded)
+        if results['success']:
+            command = (f"python backend/page_treatment/visualizer.py "
+                       f"--doctags results/output.doctags.txt --pdf {pdf_file} --page {page_num}")
+            if adjust:
+                command += " --adjust"
+            success, stdout, stderr = run_command_with_timeout(command, 60)
+            if not success:
+                results['errors'].append(f"Visualizer: {stderr}")
+                results['success'] = False
+
+        # Step 3: Extractor (only if previous steps succeeded)
+        if results['success']:
+            command = (f"python backend/page_treatment/picture_extractor.py "
+                       f"--doctags results/output.doctags.txt --pdf {pdf_file} --page {page_num}")
+            if adjust:
+                command += " --adjust"
+            success, stdout, stderr = run_command_with_timeout(command, 60)
+            if not success:
+                results['errors'].append(f"Extractor: {stderr}")
+                # Don't fail completely if just extractor fails
+
+        if results['success']:
+            return jsonify({'success': True})
+        else:
+            return jsonify({
+                'success': False,
+                'error': '; '.join(results['errors'])
+            })
+
+    except Exception as e:
+        logger.error(f"Error retrying page: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/open-results-folder', methods=['POST'])
+def open_results_folder():
+    """Open the results folder in the system file explorer"""
+    try:
+        import platform
+        import subprocess
+
+        results_dir = ensure_results_folder()
+
+        if platform.system() == 'Windows':
+            os.startfile(str(results_dir))
+        elif platform.system() == 'Darwin':  # macOS
+            subprocess.Popen(['open', str(results_dir)])
+        else:  # Linux and others
+            subprocess.Popen(['xdg-open', str(results_dir)])
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        logger.error(f"Error opening results folder: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Could not open folder automatically. ' +
+                     f'Please navigate to: {ensure_results_folder()}'
+        })
+
 # API endpoints for file upload
 @app.route('/api/upload/doctags', methods=['POST'])
 def api_upload_doctags():
